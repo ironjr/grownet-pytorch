@@ -78,7 +78,7 @@ def main(args):
     if args.resume:
         # Load from preexisting models
         print('==> Resuming from checkpoint..')
-        checkpoint = torch.load('./checkpoint/ckpt.pth')
+        checkpoint = torch.load(args.checkpoint)
         # Model from existing random graphs
         Gs, nmaps = checkpoint['graphs']
         if args.model in ['small78', 'small']:

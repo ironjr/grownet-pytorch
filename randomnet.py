@@ -95,6 +95,7 @@ class RandomNetwork(nn.Module):
                         drop_idx = torch.randint(len(self.pred[nodeid]), (1,))
 
                 # Aggregate input values to each node
+                # Traversal over predecessors are ordered in node ID
                 for i, p in enumerate(self.pred[nodeid]):
                     ipred = self.nxorder.index(self.nmap_rev[p])
                     iout = self.live[order].index(ipred)
@@ -208,77 +209,163 @@ class RandomNetwork(nn.Module):
         for n in self.nodes:
             n.stop_monitor()
 
-    def add_node(self, edges):
+    def add_node(self, edges, template=None):
         '''Add a node to the network with additional edges
 
         Added node get a new ID in sequential order. Edges are provided in
         order to maintain the network connected.
 
+        TODO Do explicit type and dimension check of template
+
         Arguments:
             edges (list(tuple)): List of additional directed edges containing
                                  the added node
+            template (Node): Template of the duplicative initialization,
+                             randomly initialize if the value is None
         '''
         # New node ID is always larger than the largest current node ID
         newid = max(self.G.nodes) + 1
 
         # Update the graph
         self.G.add_node(newid)
+        in_degree = 0
         for edge_from, edge_to in edges:
             # Check consistency of the edges and the node
-            if edge_from == newid or edge_to == newid:
+            if edge_from == newid:
+                if self.in_degree(edge_to) == 0:
+                    raise Exception('No new nodes can be created over the top layer')
                 self.G.add_edge(edge_from, edge_to)
+                self.nodes[edge_to].add_input_edge(self.nodes[edge_to].fin)
+            elif edge_to == newid:
+                self.G.add_edge(edge_from, edge_to)
+                in_degree += 1
             else:
-                assert False, 'New edges must contain the new node'
+                raise Exception('New edges must contain the new node')
 
             # Check if no cycles are created
+            # TODO
             pass
 
-        # Update the network
-        # TODO
-        pass
+        # Update fields related to the graph topology
+        self.pred = self.G.pred
+        self.in_degree = self.G.in_degree
+        out_degree = self.G.out_degree
 
-    def add_edge(self, nid_from, nid_to):
+        # Bottom layer nodes
+        if out_degree(nodeid) == 0:
+            self.bottom_layer.append(nodeid)
+        
+        # Update the network
+        if in_degree == 0:
+            in_planes = self.in_planes
+        else:
+            in_planes = self.planes
+        self.nparams += in_planes * (9 + self.planes) # depthwise conv
+        self.nparams += in_degree # w
+
+        if template is None:
+            node = Node(in_planes, self.planes, in_degree,
+                    downsample=downsample)
+            for m in node.modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                            nonlinearity='relu')
+                elif isinstance(m, nn.BatchNorm2d):
+                    nn.init.constant_(m.weight, 1)
+                    nn.init.constant_(m.bias, 0)
+        else:
+            node = copy.deepcopy(template)
+
+        # Build ReLU-conv-BN triplet node
+        self.nodes.append(node)
+
+    def add_edge(self, edge_from, edge_to):
         '''Add a directed edge to the network
 
         Arguments:
-            nid_from (int): ID of the node where the edge starts from
-            nid_to (int): ID of the node where the edge ends
+            edge_from (int): ID of the node where the edge starts from
+            edge_to (int): ID of the node where the edge ends
         '''
-        # Update the graph
-        self.G.add_edge(nid_from, nid_end)
-
         # Check consistency of the edges and the node
+        if (edge_from, edge_to) not in self.G.nodes:
+            raise Exception('Nodes in the edge should be in the graph')
+
+        # Update the graph
+        self.G.add_edge(edge_from, edge_end)
+
         # Check if no cycles are created
+        # TODO
         pass
+
+        # Update fields related to the graph topology
+        self.pred = self.G.pred
+        self.in_degree = self.G.in_degree
+        out_degree = self.G.out_degree
 
         # Update the network
-        node_to = self.nodes[nid_to]
+        self.nparams += 1 # w
+        self.nodes[edge_to].add_input_edge(self.nodes[edge_to].fin)
         pass
 
-    def increase_depth(self, edge_start, edge_end):
-        if not self.G.has_edge(edge_start, edge_end):
+    def increase_depth(self, edge_from, edge_to):
+        '''Increase depth of an edge
+
+        There are three possible ways to increase depth of the network:
+        1. (top) Node cannot be added over a top node.
+        2. (bottom) Aggregation node is the edge end node.
+        3. (middle) New node is inserted as follows:
+
+                    (from)        (from)
+                      |             |  \  
+                      |    --->     | (new)
+                      |             |  /
+                     (to)          (to)
+
+        TODO perhaps new node with fanin larger than 1?
+
+        Arguments:
+            edge_from (int): ID of a node where edge begins
+            edge_to (int or None): ID of a node where edge ends
+        '''
+        newid = max(self.nodes) + 1
+        if edge_to is None:
+            # Bottom node
+            edges = [(edge_from, newid),]
+        elif self.G.has_edge(edge_from, edge_to):
+            edges = [(edge_from, newid), (newid, edge_to),]
+        else
             return
-
-        # NOTE: Increasing depth cannot insert node at the top
-        # What about at the end?
-        node_start = self.nodes[edge_start]
-        node_end = self.nodes[edge_end]
-        # TODO perhaps different fanin?
-        node_new = Node(node_start.planes, node_start.planes, 1)
-
-        # Update the graph
-        print(len(self.G.nodes))
-        newid = len(self.G.nodes)
-        self.G.add_node(newid)
-        self.G.add_edge(edge_start, newid)
-        self.G.add_edge(newid, edge_end)
-        print(self.G.nodes)
-        print(self.G.edges)
-        print(len(self.G.nodes))
+        add_node(edges)
     
-    def increase_width(self, previd, currid, nextid):
-        if not self.G.has_edge(previd, currid) or not self.G.has_edge(currid, nextid):
+    def increase_width(self, edge_from, edge_to):
+        '''Increase width of the network by its edge
+
+        TODO
+        There are three possible ways to increase depth of the network:
+        1. (top) Node cannot be added over a top node.
+        2. (bottom) Aggregation node is the edge end node.
+        3. (middle) New node is inserted as follows:
+
+                    (from)        (from)
+                      |             |  \  
+                      |    --->     | (new)
+                      |             |  /
+                     (to)          (to)
+
+        Arguments:
+            edge_from (int): ID of a node where edge begins
+            edge_to (int or None): ID of a node where edge ends
+        '''
+        preds = self.pred(edge_from)
+        newid = max(self.nodes) + 1
+        if edge_to is None:
+            # Bottom node
+            edges = [(edge_from, newid),]
+        elif self.G.has_edge(edge_from, edge_to):
+            edges = [(edge_from, newid), (newid, edge_to),]
+        else
             return
+        add_node(edges)
 
         # NOTE: Two nodes are connected by at most one edge
         node_prev = self.nodes[previd]

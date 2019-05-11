@@ -73,7 +73,7 @@ def main(args):
     if args.resume:
         # Load from preexisting models
         print('==> Resuming from checkpoint..')
-        checkpoint = torch.load('./checkpoint/ckpt.pth')
+        checkpoint = torch.load(args.checkpoint)
         # Model from existing random graphs
         Gs, nmaps = checkpoint['graphs']
         if args.model in ['tiny36', 'tiny']:
@@ -152,7 +152,10 @@ def main(args):
         )
 
     # Criterion has no internal parameters
-    criterion = CEWithLabelSmoothingLoss
+    if args.no_label_smoothing:
+        criterion = F.cross_entropy
+    else:
+        criterion = CEWithLabelSmoothingLoss
 
     # Use CUDA and enable multi-GPU learning
     model = torch.nn.DataParallel(model,
@@ -202,7 +205,7 @@ def train(trainloader, model, graphs, criterion, optimizer, epoch, start_iter=0,
         target_vars = Variable(targets.cuda())
 
         outputs = model(input_vars)
-        loss = criterion(outputs, target_vars, eps=0.1)
+        loss = criterion(outputs, target_vars)#, eps=0.1)
 
         # Update log
         prec = accuracy(outputs.data, target_vars, topk=(1,))
@@ -260,7 +263,7 @@ def test(valloader, model, graphs, criterion, epoch, iteration, val_logger=None,
             target_vars = Variable(targets.cuda())
 
             outputs = model(input_vars)
-            loss = criterion(outputs, target_vars, eps=0.1)
+            loss = criterion(outputs, target_vars)#, eps=0.1)
 
             # Batch evaluation time
             batch_time.update(time.time() - end)
@@ -318,6 +321,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='tiny', type=str,
             choices=('tiny36', 'tiny', 'tinywide'),
             help='model to run')
+    parser.add_argument('--no-label-smoothing', action='store_true',
+            help='use vanilla cross entropy loss instead of label smoothing')
     parser.add_argument('--num-workers', default=2, type=int,
             help='number of workers in dataloader')
     parser.add_argument('--data-root', default='../common/datasets/CIFAR-10', type=str,
