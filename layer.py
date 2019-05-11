@@ -17,9 +17,11 @@ class SeparableConv(nn.Module):
 
 
 class Node(nn.Module):
-    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=False):
+    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=True, monitor=False):
         super(Node, self).__init__()
         stride = 2 if downsample else 1
+        self.depthwise = depthwise
+        self._monitor = monitor
 
         # Top layer receives input from aggregation node (one)
         # NOTE: Top layer nodes require input weight
@@ -42,7 +44,13 @@ class Node(nn.Module):
         Returns:
             Single Tensor with size (N, C, H, W)
         '''
-        x = F.linear(x, self.w).squeeze(-1) # (N,Cin,H,W)
+        if self._monitor:
+            x = F.linear(x, self.w) # (N,Cin,H,W,F)
+            numel = x[:,:,:,:,0].numel()
+            self.norms = [torch.norm(x[:,:,:,:,i]) / numel for i in range(x.size(4))]
+            x = torch.sum(x, 4).squeeze(-1) # (N,Cin,H,W)
+        else:
+            x = F.linear(x, self.w).squeeze(-1) # (N,Cin,H,W)
         out = self.bn(self.conv(F.relu(x)))
         return out
 
@@ -65,4 +73,9 @@ class Node(nn.Module):
     def scale_input_edge(self, index, scale):
         self.w[0, index] *= scale
 
+    def begin_monitor(self):
+        self._monitor = True
+
+    def stop_monitor(self):
+        self._monitor = False
 

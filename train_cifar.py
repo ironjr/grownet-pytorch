@@ -16,7 +16,7 @@ import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from randwire import RandWireSmall78, RandWireRegular109, RandWireRegular154
+from randwire import RandWireTiny36, RandWireTinyWide
 from loss import CEWithLabelSmoothingLoss
 from scheduler import CosineAnnealingWithRestartsLR
 from util import *
@@ -49,27 +49,22 @@ def main(args):
     # Data transform
     print('==> Preparing data ..')
     traindir = os.path.join(args.data_root, 'train')
-    valdir = os.path.join(args.data_root, 'val')
     traintf = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
-        transforms.RandomResizedCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485,0.456,0.406],
-            std=[0.229,0.224,0.225]),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
     valtf = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485,0.456,0.406],
-            std=[0.229,0.224,0.225]),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
-    trainset = datasets.ImageFolder(traindir, traintf)
+    trainset = datasets.CIFAR10(
+            root=args.data_root, train=True, download=True, transform=traintf)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
             shuffle=True, num_workers=args.num_workers, pin_memory=True)
-    valset = datasets.ImageFolder(valdir, valtf)
+    valset = datasets.CIFAR10(
+            root=args.data_root, train=False, download=True, transform=valtf)
     valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
             shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
@@ -81,21 +76,20 @@ def main(args):
         checkpoint = torch.load('./checkpoint/ckpt.pth')
         # Model from existing random graphs
         Gs, nmaps = checkpoint['graphs']
-        if args.model in ['small78', 'small']:
-            model, _, _ = RandWireSmall78(Gs=Gs, nmaps=nmaps)
-        elif args.model in ['regular109', 'medium']:
-            model, _, _ = RandWireRegular109(Gs=Gs, nmaps=nmaps)
-        elif args.model in ['regular154', 'large']:
-            model, _, _ = RandWireRegular154(Gs=Gs, nmaps=nmaps)
+        if args.model in ['tiny36', 'tiny']:
+            model, _, _ = RandWireTiny36(Gs=Gs, nmaps=nmaps)
+        elif args.model in ['tiny20', 'tinywide']:
+            model, _, _ = RandWireTinyWide(Gs=Gs, nmaps=nmaps)
         else:
             raise NotImplementedError
         model.load_state_dict(checkpoint['model'])
 
         optimizer = optim.SGD(
-                group_weight(model),
-                lr=args.lr,
-                momentum=args.momentum,
-                weight_decay=args.weight_decay)
+            group_weight(model),
+            lr=args.lr,
+            momentum=args.momentum,
+            weight_decay=args.weight_decay
+        )
         optimizer.load_state_dict(checkpoint['optim'])
         for group in optimizer.param_groups:
             group['lr'] = args.lr
@@ -121,29 +115,27 @@ def main(args):
             'P': 0.75,
             'K': 4,
         }
-        if args.model in ['small78', 'small']:
-            model, Gs, nmaps = RandWireSmall78(
-                    model=graph_type,
-                    params=graph_params,
-                    seeds=None)
-        elif args.model in ['regular109', 'medium']:
-            model, Gs, nmaps = RandWireRegular109(
-                    model=graph_type,
-                    params=graph_params,
-                    seeds=None)
-        elif args.model in ['regular154', 'large']:
-            model, Gs, nmaps = RandWireRegular154(
-                    model=graph_type,
-                    params=graph_params,
-                    seeds=None)
+        if args.model in ['tiny36', 'tiny']:
+            model, Gs, nmaps = RandWireTiny36(
+                model=graph_type,
+                params=graph_params,
+                seeds=None
+            )
+        elif args.model in ['tiny20', 'tinywide']:
+            model, Gs, nmaps = RandWireTinyWide(
+                model=graph_type,
+                params=graph_params,
+                seeds=None
+            )
         else:
             raise NotImplementedError
 
         optimizer = optim.SGD(
-                group_weight(model),
-                lr=args.lr,
-                momentum=0.9,
-                weight_decay=5e-5)
+            group_weight(model),
+            lr=args.lr,
+            momentum=0.9,
+            weight_decay=5e-5
+        )
 
         print('Model generated with : ', graph_type, 'method with params', graph_params, 'and seed', None)
 
@@ -154,9 +146,10 @@ def main(args):
     scheduler = None
     if not args.no_cosine_annealing:
         scheduler = CosineAnnealingWithRestartsLR(
-                optimizer,
-                T_max=args.t_max,
-                T_mult=args.t_mult)
+            optimizer,
+            T_max=args.t_max,
+            T_mult=args.t_mult
+        )
 
     # Criterion has no internal parameters
     criterion = CEWithLabelSmoothingLoss
@@ -177,8 +170,7 @@ def main(args):
             if scheduler.save_flag:
                 save('restart' + str(epoch - 1), model, graphs, optimizer, epoch)
         train(trainloader, model, graphs, criterion, optimizer, epoch,
-                train_logger=train_logger, save_every=args.save_every,
-                start_iter=start_iter)
+                train_logger=train_logger, start_iter=start_iter)
         test(valloader, model, graphs, criterion, epoch,
                 (epoch + 1) * len(trainloader), optimizer=optimizer,
                 val_logger=val_logger)
@@ -186,7 +178,7 @@ def main(args):
 
 # Train
 def train(trainloader, model, graphs, criterion, optimizer, epoch, start_iter=0,
-        train_logger=None, save_every=1000):
+        train_logger=None):
     print('\nEpoch: %d' % epoch)
 
     batch_time = AverageMeter()
@@ -241,11 +233,6 @@ def train(trainloader, model, graphs, criterion, optimizer, epoch, start_iter=0,
                 % (batch_idx, len(trainloader), losses.val, losses.avg,
                     np.asscalar(top1.val.cpu().numpy()),
                     np.asscalar(top1.avg.cpu().numpy())))
-
-        # Save at every specified cycles
-        if (idx + 1) % save_every == 0:
-            save('train' + str(step), model, graphs, optimizer, losses.avg,
-                    epoch, idx + 1)
 
         # Update the base time
         end = time.time()
@@ -325,27 +312,27 @@ def save(label, model, graphs, optimizer, loss=float('inf'), epoch=0, iteration=
 if __name__ == '__main__':
     assert torch.cuda.is_available(), 'CUDA is required!'
 
-    parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+    parser = argparse.ArgumentParser(description='PyTorch CIFAR Training')
     parser.add_argument('--label', default='default', type=str,
             help='labels checkpoints and logs saved under')
-    parser.add_argument('--model', default='regular109', type=str,
-            choices=('small78', 'small', 'regular109', 'medium', 'regular154', 'large'),
+    parser.add_argument('--model', default='tiny', type=str,
+            choices=('tiny36', 'tiny', 'tinywide'),
             help='model to run')
     parser.add_argument('--num-workers', default=2, type=int,
             help='number of workers in dataloader')
-    parser.add_argument('--data-root', default='../common/datasets/ImageNet', type=str,
-            help='ImageNet12 folder where train/ and val/ belong')
+    parser.add_argument('--data-root', default='../common/datasets/CIFAR-10', type=str,
+            help='CIFAR dataset root')
     parser.add_argument('--no-cosine-annealing', action='store_true',
             help='use uniform scheduling instead of cosine annealing')
     parser.add_argument('--t-max', default=10, type=int,
             help='restart period of cosine annealing')
     parser.add_argument('--t-mult', default=1.0, type=float,
             help='factor of increment of restart period each restart')
-    parser.add_argument('--lr', default=1e-2, type=float,
+    parser.add_argument('--lr', default=1e-1, type=float,
             help='learning rate')
     parser.add_argument('--momentum', default=0.9, type=float,
             help='SGD momentum')
-    parser.add_argument('--weight-decay', default=5e-5, type=float,
+    parser.add_argument('--weight-decay', default=1e-4, type=float,
             help='weight decay for SGD (small: 5e-5, large: 1e-5)')
     parser.add_argument('--batch-size', default=128, type=int,
             help='size of a minibatch')
@@ -353,8 +340,6 @@ if __name__ == '__main__':
             help='epoch index to start log')
     parser.add_argument('--num-epochs', default=1, type=int,
             help='number of epochs to run')
-    parser.add_argument('--save-every', default=2000, type=int,
-            help='save cycle during train mode')
     parser.add_argument('--resume', '-r', action='store_true',
             help='resume from checkpoint')
     parser.add_argument('--checkpoint', default='./checkpoint/ckpt.pth', type=str,
