@@ -234,7 +234,7 @@ class RandWireSmall(nn.Module):
 
 
 class RandWireTiny(nn.Module):
-    def __init__(self, Gs, nmaps=None, num_classes=10, planes=48, drop_edge=0, dropout=0): #, cfg=None
+    def __init__(self, Gs, nmaps=None, num_classes=10, planes=32, drop_edge=0, dropout=0): #, cfg=None
         '''RandWire network in tiny regime for CIFAR training
 
         Arguments:
@@ -260,10 +260,10 @@ class RandWireTiny(nn.Module):
         self.layer2 = RandomNetwork(half_planes, planes, Gs[0], drop_edge=drop_edge, nmap=nmaps[0])
         self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1], drop_edge=drop_edge, nmap=nmaps[1])
         self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2], drop_edge=drop_edge, nmap=nmaps[2])
-        self.layer5 = RandomNetwork(4 * planes, 8 * planes, Gs[3], drop_edge=drop_edge, nmap=nmaps[3])
+        #  self.layer5 = RandomNetwork(4 * planes, 8 * planes, Gs[3], drop_edge=drop_edge, nmap=nmaps[3])
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(8 * planes, num_classes)
+        self.fc = nn.Linear(4 * planes, num_classes)
         self.dropout = nn.Dropout(dropout)
 
         for m in self.modules():
@@ -278,7 +278,7 @@ class RandWireTiny(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        out = self.layer5(out)
+        #  out = self.layer5(out)
 
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
@@ -287,8 +287,8 @@ class RandWireTiny(nn.Module):
         return out
     
     def get_graphs(self):
-        return [layer.G for layer in [self.layer2, self.layer3, self.layer4, self.layer5]], \
-                [layer.nmap for layer in [self.layer2, self.layer3, self.layer4, self.layer5]]
+        return [layer.G for layer in [self.layer2, self.layer3, self.layer4]], \
+                [layer.nmap for layer in [self.layer2, self.layer3, self.layer4]]
 
     # TODO
     def get_complexity(self, feature_size):
@@ -301,17 +301,17 @@ class RandWireTiny(nn.Module):
         half_planes = math.ceil(self.planes / 2)
         layer_nparams = [
             3 * (9 + half_planes),
-            half_planes * (9 + self.planes),
+            self.layer2.nparams,
             self.layer3.nparams,
             self.layer4.nparams,
-            self.layer5.nparams,
+            #  self.layer5.nparams,
         ]
         layers = [
             None,
-            None,
+            self.layer2,
             self.layer3,
             self.layer4,
-            self.layer5,
+            #  self.layer5,
         ]
         
         flops = 0
@@ -331,10 +331,6 @@ class RandWireTiny(nn.Module):
                 flops += feature_size * (ntops * l.in_planes + (nnodes - ntops) * l.planes)
 
         # Evaluate the complexity of classification nets
-        # Layer conv6 has bias term
-        n = 4 * self.planes * (1 + 1280)
-        flops += n * feature_size
-        nparams += n
         # Fully connected layer also has bias term
         n = (1280 + 1) * self.num_classes
         flops += n
@@ -380,27 +376,27 @@ def RandWireRegular154(Gs=None, nmaps=None, model=None, params=None, nnodes=32, 
     return net, Gs, nmaps
 
 # CIFAR training
-def RandWireTiny36(Gs=None, nmaps=None, model=None, params=None, nnodes=16, num_classes=10, seeds=None):
+def RandWireTinyNormal(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=10, seeds=None, drop_edge=0, dropout=0):
     assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
     if Gs is None:
         # Generate random graph
-        nnodes = [nnodes, nnodes, nnodes, nnodes]
-        Gs = get_graphs(model, params, 4, nnodes, seeds)
+        nnodes = [nnodes // 2, nnodes, nnodes]
+        Gs = get_graphs(model, params, 3, nnodes, seeds)
     
     # Generate network from graph configurations
-    net = RandWireTiny(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=36)
+    net = RandWireTiny(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=51, drop_edge=drop_edge, dropout=dropout)
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
-def RandWireTinyWide(Gs=None, nmaps=None, model=None, params=None, nnodes=20, num_classes=10, seeds=None):
+def RandWireTinyWide(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=10, seeds=None, drop_edge=0, dropout=0):
     assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
     if Gs is None:
         # Generate random graph
-        nnodes = [nnodes, nnodes, nnodes, nnodes]
-        Gs = get_graphs(model, params, 4, nnodes, seeds)
+        nnodes = [nnodes, nnodes, nnodes]
+        Gs = get_graphs(model, params, 3, nnodes, seeds)
     
     # Generate network from graph configurations
-    net = RandWireTiny(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=32)
+    net = RandWireTiny(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=32, drop_edge=drop_edge, dropout=dropout)
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
@@ -411,7 +407,7 @@ def test():
         'P': 0.75,
         'K': 4,
     }
-    network_list = [RandWireTinyWide,]#[RandWireSmall78, RandWireRegular109, RandWireRegular154]
+    network_list = [RandWireTinyNormal,]#[RandWireSmall78, RandWireRegular109, RandWireRegular154]
     test_complexity(network_list, graph_type, graph_params, input_size=32, num_samples=10)
 
     #  x = torch.randn(32, 3, 224, 224)

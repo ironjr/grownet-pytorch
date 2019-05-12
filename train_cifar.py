@@ -16,7 +16,7 @@ import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from randwire import RandWireTiny36, RandWireTinyWide
+from randwire import RandWireTinyNormal, RandWireTinyWide
 from loss import CEWithLabelSmoothingLoss
 from scheduler import CosineAnnealingWithRestartsLR
 from util import *
@@ -76,10 +76,20 @@ def main(args):
         checkpoint = torch.load(args.checkpoint)
         # Model from existing random graphs
         Gs, nmaps = checkpoint['graphs']
-        if args.model in ['tiny36', 'tiny']:
-            model, _, _ = RandWireTiny36(Gs=Gs, nmaps=nmaps)
+        if args.model in ['tiny16', 'tiny']:
+            model, _, _ = RandWireTinyNormal(
+                Gs=Gs,
+                nmaps=nmaps,
+                drop_edge=args.drop_edge,
+                dropout=args.dropout
+            )
         elif args.model in ['tiny20', 'tinywide']:
-            model, _, _ = RandWireTinyWide(Gs=Gs, nmaps=nmaps)
+            model, _, _ = RandWireTinyWide(
+                Gs=Gs,
+                nmaps=nmaps,
+                drop_edge=args.drop_edge,
+                dropout=args.dropout
+            )
         else:
             raise NotImplementedError
         model.load_state_dict(checkpoint['model'])
@@ -115,17 +125,21 @@ def main(args):
             'P': 0.75,
             'K': 4,
         }
-        if args.model in ['tiny36', 'tiny']:
-            model, Gs, nmaps = RandWireTiny36(
+        if args.model in ['tiny16', 'tiny']:
+            model, Gs, nmaps = RandWireTinyNormal(
                 model=graph_type,
                 params=graph_params,
-                seeds=None
+                seeds=None,
+                drop_edge=args.drop_edge,
+                dropout=args.dropout
             )
         elif args.model in ['tiny20', 'tinywide']:
             model, Gs, nmaps = RandWireTinyWide(
                 model=graph_type,
                 params=graph_params,
-                seeds=None
+                seeds=None,
+                drop_edge=args.drop_edge,
+                dropout=args.dropout
             )
         else:
             raise NotImplementedError
@@ -319,8 +333,12 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='default', type=str,
             help='labels checkpoints and logs saved under')
     parser.add_argument('--model', default='tiny', type=str,
-            choices=('tiny36', 'tiny', 'tinywide'),
+            choices=('tiny16', 'tiny', 'tinywide'),
             help='model to run')
+    parser.add_argument('--drop-edge', default=0, type=float,
+            help='drop rate of edges, does not apply to regular regime')
+    parser.add_argument('--dropout', default=0, type=float,
+            help='dropout rate before the fc layer')
     parser.add_argument('--no-label-smoothing', action='store_true',
             help='use vanilla cross entropy loss instead of label smoothing')
     parser.add_argument('--num-workers', default=2, type=int,

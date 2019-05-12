@@ -25,6 +25,7 @@ class RandomNetwork(nn.Module):
         self.in_planes = in_planes
         self.planes = planes
         self.G = G
+        self.downsample = downsample
         self.drop_edge = drop_edge
         self.monitor_flow = monitor_flow
 
@@ -252,8 +253,8 @@ class RandomNetwork(nn.Module):
         out_degree = self.G.out_degree
 
         # Bottom layer nodes
-        if out_degree(nodeid) == 0:
-            self.bottom_layer.append(nodeid)
+        if out_degree(newid) == 0:
+            self.bottom_layer.append(newid)
         
         # Update the network
         if in_degree == 0:
@@ -264,8 +265,14 @@ class RandomNetwork(nn.Module):
         self.nparams += in_degree # w
 
         if template is None:
-            node = Node(in_planes, self.planes, in_degree,
-                    downsample=downsample)
+            # Create new node
+            if in_degree == 0:
+                node = Node(in_planes, self.planes, in_degree,
+                        downsample=self.downsample)
+            else:
+                node = Node(in_planes, self.planes, in_degree)
+
+            # Initialization
             for m in node.modules():
                 if isinstance(m, nn.Conv2d):
                     nn.init.kaiming_normal_(m.weight, mode='fan_out',
@@ -274,10 +281,15 @@ class RandomNetwork(nn.Module):
                     nn.init.constant_(m.weight, 1)
                     nn.init.constant_(m.bias, 0)
         else:
+            # Copy node from the template
             node = copy.deepcopy(template)
 
         # Build ReLU-conv-BN triplet node
         self.nodes.append(node)
+
+        # Update mapping
+        self.nmap, self.nxorder, self.live = self._optimize_graph(self.G)
+        self.nmap_rev = { v: k for k, v in self.nmap.items() }
 
     def add_edge(self, edge_from, edge_to):
         '''Add a directed edge to the network
@@ -305,7 +317,10 @@ class RandomNetwork(nn.Module):
         # Update the network
         self.nparams += 1 # w
         self.nodes[edge_to].add_input_edge(self.nodes[edge_to].fin)
-        pass
+
+        # Update mapping
+        self.nmap, self.nxorder, self.live = self._optimize_graph(self.G)
+        self.nmap_rev = { v: k for k, v in self.nmap.items() }
 
     def increase_depth(self, edge_from, edge_to):
         '''Increase depth of an edge
@@ -327,63 +342,49 @@ class RandomNetwork(nn.Module):
             edge_from (int): ID of a node where edge begins
             edge_to (int or None): ID of a node where edge ends
         '''
-        newid = max(self.nodes) + 1
+        newid = max(self.G.nodes) + 1
         if edge_to is None:
             # Bottom node
             edges = [(edge_from, newid),]
         elif self.G.has_edge(edge_from, edge_to):
             edges = [(edge_from, newid), (newid, edge_to),]
-        else
+        else:
             return
-        add_node(edges)
+        self.add_node(edges)
     
     def increase_width(self, edge_from, edge_to):
         '''Increase width of the network by its edge
 
-        TODO
-        There are three possible ways to increase depth of the network:
-        1. (top) Node cannot be added over a top node.
-        2. (bottom) Aggregation node is the edge end node.
+        There are three possible ways to increase width of the network:
+        1. (top) Node can be add as middle case, in_planes should be matched.
+        2. (bottom) Node cannot be added at the bottom.
         3. (middle) New node is inserted as follows:
 
-                    (from)        (from)
-                      |             |  \  
-                      |    --->     | (new)
-                      |             |  /
-                     (to)          (to)
+           (pred2) (pred1) (pred3)       (pred2) (pred1) (pred3)
+                  \   |    /                   \   |    /      
+                    (from)       --->         (from| new)
+                    1 |                       0.5 \ / 0.5
+                     (to)                         (to)
 
         Arguments:
             edge_from (int): ID of a node where edge begins
-            edge_to (int or None): ID of a node where edge ends
+            edge_to (int): ID of a node where edge ends
         '''
-        preds = self.pred(edge_from)
-        newid = max(self.nodes) + 1
-        if edge_to is None:
-            # Bottom node
-            edges = [(edge_from, newid),]
-        elif self.G.has_edge(edge_from, edge_to):
-            edges = [(edge_from, newid), (newid, edge_to),]
-        else
+        newid = max(self.G.nodes) + 1
+        edges = []
+        if self.G.has_edge(edge_from, edge_to):
+            for p in self.pred[edge_from]:
+                edges.append((p, newid))
+            edges.append((newid, edge_to))
+        else:
             return
-        add_node(edges)
+        self.add_node(edges, template=self.nodes[edge_from])
 
-        # NOTE: Two nodes are connected by at most one edge
-        node_prev = self.nodes[previd]
-        node_curr = self.nodes[currid]
-        node_next = self.nodes[nextid]
-        node_new = copy.deepcopy(node_currid)
-        self.nodes.append(node_new)
-        #  node_next.scale_input_edge(
-        
-        # Update the graph
-        print(len(self.G.nodes))
-        newid = len(self.G.nodes)
-        self.G.add_node(newid)
-        self.G.add_edge(previd, newid)
-        self.G.add_edge(newid, nextid)
-        print(self.G.nodes)
-        print(self.G.edges)
-        print(len(self.G.nodes))
+        # Scale the weight of duplicated edge to half
+        preds = [k for k in self.pred[edge_to]]
+        node_to = self.nodes[edge_to]
+        node_to.scale_input_edge(preds.index(edge_from), 0.5)
+        node_to.scale_input_edge(preds.index(newid), 0.5)
 
     def delete_edge(self, index):
         # TODO
@@ -391,26 +392,75 @@ class RandomNetwork(nn.Module):
 
 
 def test():
+    from io import BytesIO
+    import matplotlib.pyplot as plt
+    import matplotlib.image as mpimg
     from torchviz import make_dot
     from graph import GraphGenerator
-    graphgen = GraphGenerator('WS', { 'K': 6, 'P': 0.25, })
-    G = graphgen.generate(nnode=16)
+
+    def draw_graph(G):
+        plt.figure()
+        P = nx.nx_pydot.to_pydot(G)
+        data = P.create_png(prog=['dot', '-Gsize=9,15\\!', '-Gdpi=100'])
+        img = mpimg.imread(BytesIO(data))
+        plot = plt.imshow(img, aspect='equal')
+        plt.axis('off')
+        plt.show(block=False)
+
+    def draw_network(net, label='RandomNet'):
+        out = net(x)
+        dot = make_dot(out, params=dict(net.named_parameters()))
+        dot.render(filename=label, view=True)
+
+    # Generate random graph
+    graphgen = GraphGenerator('WS', { 'K': 4, 'P': 0.75, })
+    G = graphgen.generate(nnode=8)
     randnet = RandomNetwork(in_planes=3, planes=16, G=G, downsample=False)
-    x = torch.randn(8, 3, 224, 224)
+    x = torch.randn(8, 3, 32, 32) # Sample image
 
-    # Evaluate the network
-    out = randnet(x)
-    print(out.size())
-    #  dot = make_dot(out, params=dict(randnet.named_parameters()))
-    #  dot.render(view=True)
+    # Draw the network
+    draw_graph(randnet.G)
+    draw_network(randnet, label='Vanilla')
 
-    # Modify the network online
-    #  randnet.increase_width(4)
+    # Test increase_width
+    if False:
+        # Modify the network online
+        print(randnet.G.edges)
+        index = 7
+        for i, e in enumerate(randnet.G.edges):
+            if index == i:
+                edge_from, edge_to = e
+                break
+        print(e)
+        randnet.increase_width(edge_from, edge_to)
 
-    #  out = randnet(x)
-    #  print(out.size())
-    #  dot = make_dot(out, params=dict(randnet.named_parameters()))
-    #  dot.render(view=True)
+        # Draw the network
+        draw_graph(randnet.G)
+        draw_network(randnet, label='IncreaseWidth')
+
+    # Test increase_depth
+    if False:
+        # Modify the network online
+        print(randnet.G.edges)
+        index = len(randnet.G.edges) - 1
+        for i, e in enumerate(randnet.G.edges):
+            if index == i:
+                edge_from, edge_to = e
+                break
+        print(e)
+        randnet.increase_depth(edge_from, edge_to)
+
+        for nid in G.nodes:
+            if randnet.G.out_degree(nid) == 0:
+                break
+        print(nid)
+        randnet.increase_depth(nid, None)
+
+        # Draw the network
+        draw_graph(randnet.G)
+        draw_network(randnet, label='IncreaseDepth')
+
+    input()
 
 
 if __name__ == '__main__':
