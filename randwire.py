@@ -402,17 +402,32 @@ def RandWireTinyWide(Gs=None, nmaps=None, model=None, params=None, nnodes=32, nu
 
 
 def test():
+    from visualize import draw_graph, draw_network
+
     graph_type= 'WS'
     graph_params = {
         'P': 0.75,
         'K': 4,
     }
     network_list = [RandWireTinyNormal,]#[RandWireSmall78, RandWireRegular109, RandWireRegular154]
+
     test_complexity(network_list, graph_type, graph_params, input_size=32, num_samples=10)
 
-    #  x = torch.randn(32, 3, 224, 224)
-    #  out = net(x)
-    #  print(out.size())
+    for gen in network_list:
+        net, Gs, _ = gen(model=graph_type, params=graph_params, seeds=None)
+
+        # Evaluate the network
+        x = torch.randn(16, 3, 32, 32)
+        out = net(x)
+        print(out.size())
+        
+        # Draw the network
+        for G in Gs:
+            draw_graph(G)
+        draw_network(net, x, label=gen.__name__)
+        
+        # Pause
+        input()
 
 
 if __name__ == '__main__':

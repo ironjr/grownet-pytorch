@@ -32,7 +32,7 @@ class RandomNetwork(nn.Module):
         # Generate nodes based on the final graph
         self.pred = self.G.pred
         self.in_degree = self.G.in_degree
-        out_degree = self.G.out_degree
+        self.out_degree = self.G.out_degree
         self.bottom_layer = []
         self.nodes = nn.ModuleList()
         self.nparams = 0 # Computational complexity measure
@@ -49,7 +49,7 @@ class RandomNetwork(nn.Module):
             self.nparams += in_degree # w
 
             # Bottom layer nodes
-            if out_degree(nodeid) == 0:
+            if self.out_degree(nodeid) == 0:
                 self.bottom_layer.append(nodeid)
 
             # Build ReLU-conv-BN triplet node
@@ -106,9 +106,12 @@ class RandomNetwork(nn.Module):
                     else:
                         # Normal data flow
                         y.append(outs[iout])
-                    if order is not len(self.nxorder) - 1 and \
-                            ipred not in self.live[order + 1]:
-                        to_delete.append(iout)
+                    if order is len(self.nxorder) - 1:
+                        if p not in self.bottom_layer:
+                            to_delete.append(iout)
+                    else:
+                        if ipred not in self.live[order + 1]:
+                            to_delete.append(iout)
                 y = torch.stack(y) # (F,N,Cin,H,W)
                 y = y.permute(1, 2, 3, 4, 0) # (N,Cin,H,W,F)
                 out = node(y)
@@ -188,15 +191,17 @@ class RandomNetwork(nn.Module):
         ispans = [] # indices of nxorder
         succ = G.succ
         for nmapid in nxorder:
-            nextnodes = [nxorder.index(n) for n in succ[nmapid]]
-            span = max(nextnodes) if len(nextnodes) != 0 else G.number_of_nodes()
+            if nmap[nmapid] in self.bottom_layer:
+                span = G.number_of_nodes()
+            else:
+                nextnodes = [nxorder.index(n) for n in succ[nmapid]]
+                span = max(nextnodes) if len(nextnodes) != 0 else G.number_of_nodes()
             ispans.append(span)
 
         live = [None,] * len(nxorder) # list of nxorder indices stored in topological order
         for order in range(len(nxorder)):
             live[order] = [inode for inode, ispan in enumerate(ispans) \
                     if ispan >= order and inode < order]
-
         return nxorder, live
 
     def _shuffle_with_consistency(self):
@@ -250,10 +255,11 @@ class RandomNetwork(nn.Module):
         # Update fields related to the graph topology
         self.pred = self.G.pred
         self.in_degree = self.G.in_degree
-        out_degree = self.G.out_degree
+        self.out_degree = self.G.out_degree
 
         # Bottom layer nodes
-        if out_degree(newid) == 0:
+        # NOTE: Bottom layer keeps expanding
+        if self.out_degree(newid) == 0:
             self.bottom_layer.append(newid)
         
         # Update the network
@@ -312,7 +318,7 @@ class RandomNetwork(nn.Module):
         # Update fields related to the graph topology
         self.pred = self.G.pred
         self.in_degree = self.G.in_degree
-        out_degree = self.G.out_degree
+        self.out_degree = self.G.out_degree
 
         # Update the network
         self.nparams += 1 # w
@@ -392,35 +398,18 @@ class RandomNetwork(nn.Module):
 
 
 def test():
-    from io import BytesIO
-    import matplotlib.pyplot as plt
-    import matplotlib.image as mpimg
-    from torchviz import make_dot
     from graph import GraphGenerator
-
-    def draw_graph(G):
-        plt.figure()
-        P = nx.nx_pydot.to_pydot(G)
-        data = P.create_png(prog=['dot', '-Gsize=9,15\\!', '-Gdpi=100'])
-        img = mpimg.imread(BytesIO(data))
-        plot = plt.imshow(img, aspect='equal')
-        plt.axis('off')
-        plt.show(block=False)
-
-    def draw_network(net, label='RandomNet'):
-        out = net(x)
-        dot = make_dot(out, params=dict(net.named_parameters()))
-        dot.render(filename=label, view=True)
+    from visualize import draw_graph, draw_network
 
     # Generate random graph
     graphgen = GraphGenerator('WS', { 'K': 4, 'P': 0.75, })
-    G = graphgen.generate(nnode=8)
+    G = graphgen.generate(nnode=16)
     randnet = RandomNetwork(in_planes=3, planes=16, G=G, downsample=False)
     x = torch.randn(8, 3, 32, 32) # Sample image
 
     # Draw the network
     draw_graph(randnet.G)
-    draw_network(randnet, label='Vanilla')
+    draw_network(randnet, x, label='Vanilla')
 
     # Test increase_width
     if False:
@@ -436,7 +425,7 @@ def test():
 
         # Draw the network
         draw_graph(randnet.G)
-        draw_network(randnet, label='IncreaseWidth')
+        draw_network(randnet, x, label='IncreaseWidth')
 
     # Test increase_depth
     if False:
@@ -458,7 +447,7 @@ def test():
 
         # Draw the network
         draw_graph(randnet.G)
-        draw_network(randnet, label='IncreaseDepth')
+        draw_network(randnet, x, label='IncreaseDepth')
 
     input()
 

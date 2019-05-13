@@ -1,15 +1,36 @@
+from io import BytesIO
+
+import networkx as nx
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 from torchviz import make_dot
-from graph import GraphGenerator
 
-# TODO
-def visualize_graph():
-    graphgen = GraphGenerator('WS', { 'K': 6, 'P': 0.25, })
-    G = graphgen.generate(nnode=16)
-    randnet = RandomNetwork(in_planes=3, planes=16, G=G, downsample=False)
-    x = torch.randn(8, 3, 224, 224)
 
-    # Evaluate the network
-    out = randnet(x)
-    print(out.size())
-    dot = make_dot(out, params=dict(randnet.named_parameters()))
-    dot.render(view=True)
+def draw_graph(G):
+    '''Draw NetworkX graph using pydot and graphviz
+
+    Arguments:
+        G (Graph or DiGraph): networkx graph to visualize
+    '''
+    plt.figure()
+    P = nx.nx_pydot.to_pydot(G)
+    data = P.create_png(prog=['dot', '-Gsize=9,15\\!', '-Gdpi=100'])
+    img = mpimg.imread(BytesIO(data))
+    plot = plt.imshow(img, aspect='equal')
+    plt.axis('off')
+    plt.show(block=False)
+
+
+def draw_network(net, input, label='RandomNet'):
+    '''Draw pytorch neural network using torchviz
+
+    Needs evaluation of input data
+
+    Arguments:
+        net (nn.Module): neural network model to visualize
+        input (Tensor): input tensor for net
+        label (str, optional): name network plot is saved under
+    '''
+    out = net(input)
+    dot = make_dot(out, params=dict(net.named_parameters()))
+    dot.render(filename=label, view=True)

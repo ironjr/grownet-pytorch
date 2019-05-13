@@ -1,7 +1,7 @@
-LABEL=tiny16-run5-da5
+LABEL=tiny16-run6-de3
 MODEL=tiny16
-DROPOUT=0.5
-DROPEDGE=0.1
+DROPOUT=0
+DROPEDGE=0.3
 CHECKPOINT=ckpt_$LABEL.pth
 
 python train_cifar.py \
@@ -10,7 +10,7 @@ python train_cifar.py \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
     --lr=1e-1 \
-    --num-epochs=150 \
+    --num-epochs=80 \
     --no-cosine-annealing \
     --no-label-smoothing
 cp checkpoint/$LABEL/ckpt_test149.pth checkpoint/$CHECKPOINT
@@ -20,7 +20,7 @@ python train_cifar.py \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
     --lr=1e-2 \
-    --num-epochs=100 \
+    --num-epochs=80 \
     --no-cosine-annealing \
     --no-label-smoothing \
     --resume \
@@ -32,7 +32,7 @@ python train_cifar.py \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
     --lr=1e-3 \
-    --num-epochs=100 \
+    --num-epochs=40 \
     --no-cosine-annealing \
     --no-label-smoothing \
     --resume \

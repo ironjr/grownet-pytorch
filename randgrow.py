@@ -11,9 +11,9 @@ from layer import SeparableConv
 from randomnet import RandomNetwork
 
 
-class RandWireRegular(nn.Module):
+class RandGrowRegular(nn.Module):
     def __init__(self, Gs, nmaps=None, num_classes=1000, planes=109, drop_edge=0.1, dropout=0.2): #, cfg=None
-        '''RandWire network in regular regime from Saining Xie et al. (Apr, 2019)
+        '''RandGrow network in regular regime from Saining Xie et al. (Apr, 2019)
 
         Arguments:
             Gs (list(DiGraph)) : A dict of DAGs from random graph generator
@@ -23,7 +23,7 @@ class RandWireRegular(nn.Module):
             drop_edge (float): dropout probability of dropping edge
             dropout (float): dropout probability in the fully connected layer
         '''
-        super(RandWireRegular, self).__init__()
+        super(RandGrowRegular, self).__init__()
         half_planes = math.ceil(planes / 2)
 
         if nmaps is None:
@@ -70,9 +70,9 @@ class RandWireRegular(nn.Module):
                 [layer.nmap for layer in [self.layer2, self.layer3, self.layer4, self.layer5]]
 
 
-class RandWireSmall(nn.Module):
+class RandGrowSmall(nn.Module):
     def __init__(self, Gs, nmaps=None, num_classes=1000, planes=109): #, cfg=None
-        '''RandWire network in small regime from Saining Xie et al. (Apr, 2019)
+        '''RandGrow network in small regime from Saining Xie et al. (Apr, 2019)
 
         Arguments:
             Gs (list(DiGraph)) : A list of DAGs from random graph generator
@@ -80,7 +80,7 @@ class RandWireSmall(nn.Module):
             num_classes (int): number of classes in classifier
             planes (int): number of channels after conv1 layer (C in the paper), small(78), regular(109|154)
         '''
-        super(RandWireSmall, self).__init__()
+        super(RandGrowSmall, self).__init__()
         half_planes = math.ceil(planes / 2)
 
         if nmaps is None:
@@ -130,9 +130,9 @@ class RandWireSmall(nn.Module):
 
 
 # TODO
-class RandWireTiny(nn.Module):
+class RandGrowTiny(nn.Module):
     def __init__(self, Gs, nmaps=None, num_classes=10, planes=109): #, cfg=None
-        '''RandWire network in tiny regime for CIFAR training
+        '''RandGrow network in tiny regime for CIFAR training
 
         Arguments:
             Gs (list(DiGraph)) : A list of DAGs from random graph generator
@@ -140,7 +140,7 @@ class RandWireTiny(nn.Module):
             num_classes (int): number of classes in classifier
             planes (int): number of channels after conv1 layer (C in the paper), small(78), regular(109|154)
         '''
-        super(RandWireTiny, self).__init__()
+        super(RandGrowTiny, self).__init__()
         half_planes = math.ceil(planes / 2)
 
         if nmaps is None:
@@ -190,18 +190,18 @@ class RandWireTiny(nn.Module):
 
 
 # Wrappers for both network and graph configuration
-def RandWireSmall78(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
+def RandGrowSmall78(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
     assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
     if Gs is None:
         # Generate random graph
         Gs = get_graphs(model, params, 3, nnodes, seeds)
 
     # Generate network from graph configurations
-    net = RandWireSmall(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=78)
+    net = RandGrowSmall(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=78)
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
-def RandWireRegular109(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
+def RandGrowRegular109(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
     assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
     if Gs is None:
         # Generate random graph
@@ -209,11 +209,11 @@ def RandWireRegular109(Gs=None, nmaps=None, model=None, params=None, nnodes=32, 
         Gs = get_graphs(model, params, 4, nnodes, seeds)
     
     # Generate network from graph configurations
-    net = RandWireRegular(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=109)
+    net = RandGrowRegular(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=109)
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
-def RandWireRegular154(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
+def RandGrowRegular154(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
     assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
     if Gs is None:
         # Generate random graph
@@ -221,20 +221,26 @@ def RandWireRegular154(Gs=None, nmaps=None, model=None, params=None, nnodes=32, 
         Gs = get_graphs(model, params, 4, nnodes, seeds)
     
     # Generate network from graph configurations
-    net = RandWireRegular(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=154)
+    net = RandGrowRegular(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=154)
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
 
 def test():
+    from visualize import draw_graph, draw_network
+
     model = 'WS'
     params = {
             'P': 0.75,
             'K': 4, }
-    net, Gs, nmaps = RandWireRegular154(model=model, params=params, seeds=[1, 2, 3, 4])
-    x = torch.randn(32, 3, 224, 224)
+    net, Gs, nmaps = RandGrowRegular154(model=model, params=params, seeds=[1, 2, 3, 4])
+    x = torch.randn(16, 3, 32, 32)
     out = net(x)
     print(out.size())
+
+    # Draw the network
+    draw_graph(randnet.G)
+    draw_network(randnet, x, label='Vanilla')
 
 
 if __name__ == '__main__':
