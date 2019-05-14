@@ -23,8 +23,6 @@ def draw_graph(G, view=True, label=None):
     if view:
         plt.show(block=False)
     if label is not None:
-        print(label)
-        input()
         fig.savefig(label + '.png')
         plt.close(fig)
 
