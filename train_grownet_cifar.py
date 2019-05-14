@@ -87,7 +87,7 @@ def main(args):
         # Model from existing random graphs
         Gs, nmaps = checkpoint['graphs']
         cfg = {
-            'depthrate': 0.2,
+            'depthrate': args.depthrate,
         }
         if args.model in ['tiny16', 'tiny']:
             model, _, _ = RandGrowTinyNormal(
@@ -125,7 +125,7 @@ def main(args):
         print('==> Generating new model..')
 
         cfg = {
-            'depthrate': 0.2,
+            'depthrate': args.depthrate,
         }
         if args.model in ['tiny16', 'tiny']:
             model, _, _ = RandGrowTinyNormal(
@@ -183,23 +183,6 @@ def main(args):
                 val_logger=val_logger)
 
         # Save after test
-        mismatch_flag = False
-        match = { k: 0 for k, v in optimizer.state.items() }
-        for p in model.named_parameters():
-            if p[1] in match:
-                match[p[1]] = 1
-            else:
-                mismatch_flat = True
-                print('in model not in optim', p[0])
-        for k, v in match.items():
-            if v == 0:
-                mismatch_flat = True
-                print('in optim not in model', k)
-        if mismatch_flag:
-            for lid, layer in enumerate([model.module.layer2, model.module.layer3, model.module.layer4]):
-                for nid in range(3):
-                    print('layer' + str(lid) + '.nodes.' + str(nid) + '.w')
-                    print(layer.nodes[nid].w)
         save('done' + str(epoch), model, optimizer, avgloss, epoch + 1)
 
         # Do not expand at the last epoch
@@ -211,8 +194,11 @@ def main(args):
 
                 # Cache input weights
                 group_in_weights = optimizer.param_groups[2]
-                input_weight_bufs = { p[0]: (group_in_weights['params'].index(p[1]), p[1]) \
-                        for p in model.named_parameters() if p[0].endswith('.w') }
+                id_in_weights = [id(p) for p in group_in_weights['params']]
+                input_weight_bufs = {}
+                for p in model.named_parameters():
+                    if p[0].endswith('.w'):
+                        input_weight_bufs[p[0]] = (id_in_weights.index(id(p[1])), p[1])
 
                 # Grow network a single step
                 expand_info = model.expand()
@@ -425,7 +411,7 @@ def show_graph(label, model, batch_size, feature_size=32, view=False, wrapped=Tr
     x = torch.randn(batch_size, 3, feature_size, feature_size).cuda()
     for i, G in enumerate(Gs):
         draw_graph(G, view=view, label=(os.path.join(save_dir, label + '.' + str(i))))
-    draw_network(model, x, view=view, label=label)
+    draw_network(model, x, view=view, label=(os.path.join(save_dir, label)))
 
 
 if __name__ == '__main__':
@@ -437,6 +423,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='tiny', type=str,
             choices=('tiny16', 'tiny', 'tinywide'),
             help='model to run')
+    parser.add_argument('--depthrate', default=0.2, type=float,
+            help='increase depth probability')
     parser.add_argument('--drop-edge', default=0, type=float,
             help='drop rate of edges, does not apply to regular regime')
     parser.add_argument('--dropout', default=0, type=float,

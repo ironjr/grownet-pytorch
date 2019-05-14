@@ -257,7 +257,7 @@ class RandWireTiny(nn.Module):
                 SeparableConv(3, half_planes, stride=2),
                 nn.BatchNorm2d(half_planes))
 
-        self.layer2 = RandomNetwork(half_planes, planes, Gs[0], drop_edge=drop_edge, nmap=nmaps[0])
+        self.layer2 = RandomNetwork(half_planes, planes, Gs[0], drop_edge=drop_edge, nmap=nmaps[0], downsample=False)
         self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1], drop_edge=drop_edge, nmap=nmaps[1])
         self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2], drop_edge=drop_edge, nmap=nmaps[2])
         #  self.layer5 = RandomNetwork(4 * planes, 8 * planes, Gs[3], drop_edge=drop_edge, nmap=nmaps[3])
