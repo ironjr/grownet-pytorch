@@ -46,30 +46,37 @@ def accuracy(output, target, topk=(1,)):
 def group_weight(module):
     group_decay = []
     group_no_decay = []
-    for m in module.modules():
-        if isinstance(m, nn.Linear):
-            group_decay.append(m.weight)
-            if m.bias is not None:
-                group_no_decay.append(m.bias)
-        elif isinstance(m, nn.modules.conv._ConvNd):
-            group_decay.append(m.weight)
-            if m.bias is not None:
-                group_no_decay.append(m.bias)
-        elif isinstance(m, nn.modules.batchnorm._BatchNorm):
-            if m.weight is not None:
-                group_no_decay.append(m.weight)
-            if m.bias is not None:
-                group_no_decay.append(m.bias)
+    group_in_weights = []
 
-        # Custom modules
-        elif isinstance(m, layer.Node):
-            group_decay.append(m.w)
+    # Assume all parameters are named
+    for np in module.named_parameters():
+        if np[0].endswith('.bias'):
+            group_no_decay.append(np[1])
+        elif np[0].endswith('bn.weight'):
+            group_no_decay.append(np[1])
+        elif np[0].endswith('pointwise.weight'):
+            group_decay.append(np[1])
+        elif np[0].endswith('depthwise.weight'):
+            group_decay.append(np[1])
+        # Fully connected layers
+        elif np[0].endswith('fc.weight'):
+            group_decay.append(np[1])
+        # Single convolutional layers at the top
+        elif np[0].endswith('.1.weight'):
+            group_decay.append(np[1])
+        # Node input edge weights
+        elif np[0].endswith('w'):
+            group_in_weights.append(np[1])
+        else:
+            print(np[0])
+            raise NotImplementedError
 
-    #  assert len(list(module.parameters())) == len(group_decay) + \
-    #      len(group_no_decay)
-    groups = [dict(params=group_decay),
-        dict(params=group_no_decay, weight_decay=.0)]
-
+    # TODO w no decay? decay?
+    groups = [
+        dict(params=group_decay),
+        dict(params=group_no_decay, weight_decay=.0),
+        dict(params=group_in_weights, weight_decay=.0)
+    ]
     return groups
 
 

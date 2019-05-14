@@ -10,7 +10,7 @@ from layer import Node
 
 
 class RandomNetwork(nn.Module):
-    def __init__(self, in_planes, planes, G, nmap=None, downsample=True, drop_edge=0, monitor_flow=True):
+    def __init__(self, in_planes, planes, G, nmap=None, downsample=True, drop_edge=0, monitor_flow=True, device='cuda'):
         '''Random DAG network of nodes
 
         Arguments:
@@ -20,6 +20,7 @@ class RandomNetwork(nn.Module):
             nmap (dict): saved node id map for optimal traversal
             downsample (bool): overrides downsample setting of the top layer
             monitor_flow (bool): monitor dataflow through the graph
+            device (str): default device
         '''
         super(RandomNetwork, self).__init__()
         self.in_planes = in_planes
@@ -28,6 +29,7 @@ class RandomNetwork(nn.Module):
         self.downsample = downsample
         self.drop_edge = drop_edge
         self.monitor_flow = monitor_flow
+        self.device = device
 
         # Generate nodes based on the final graph
         self.pred = self.G.pred
@@ -204,9 +206,6 @@ class RandomNetwork(nn.Module):
                     if ispan >= order and inode < order]
         return nxorder, live
 
-    def _shuffle_with_consistency(self):
-        pass
-
     def begin_monitor(self):
         for n in self.nodes:
             n.begin_monitor()
@@ -214,6 +213,12 @@ class RandomNetwork(nn.Module):
     def stop_monitor(self):
         for n in self.nodes:
             n.stop_monitor()
+
+    def get_edge_weights(self):
+        weights = {}
+        for ni, n in enumerate(self.nodes):
+            weights.update({ (p, ni): n.norms[pi] for pi, p in enumerate(self.pred[ni]) })
+        return weights
 
     def add_node(self, edges, template=None):
         '''Add a node to the network with additional edges
@@ -277,6 +282,7 @@ class RandomNetwork(nn.Module):
                         downsample=self.downsample)
             else:
                 node = Node(in_planes, self.planes, in_degree)
+            node.to(self.device)
 
             # Initialization
             for m in node.modules():
@@ -296,6 +302,8 @@ class RandomNetwork(nn.Module):
         # Update mapping
         self.nmap, self.nxorder, self.live = self._optimize_graph(self.G)
         self.nmap_rev = { v: k for k, v in self.nmap.items() }
+
+        return node
 
     def add_edge(self, edge_from, edge_to):
         '''Add a directed edge to the network
@@ -356,7 +364,7 @@ class RandomNetwork(nn.Module):
             edges = [(edge_from, newid), (newid, edge_to),]
         else:
             return
-        self.add_node(edges)
+        return self.add_node(edges)
     
     def increase_width(self, edge_from, edge_to):
         '''Increase width of the network by its edge
@@ -384,13 +392,14 @@ class RandomNetwork(nn.Module):
             edges.append((newid, edge_to))
         else:
             return
-        self.add_node(edges, template=self.nodes[edge_from])
+        node = self.add_node(edges, template=self.nodes[edge_from])
 
         # Scale the weight of duplicated edge to half
         preds = [k for k in self.pred[edge_to]]
         node_to = self.nodes[edge_to]
         node_to.scale_input_edge(preds.index(edge_from), 0.5)
         node_to.scale_input_edge(preds.index(newid), 0.5)
+        return node
 
     def delete_edge(self, index):
         # TODO
@@ -406,6 +415,14 @@ def test():
     G = graphgen.generate(nnode=16)
     randnet = RandomNetwork(in_planes=3, planes=16, G=G, downsample=False)
     x = torch.randn(8, 3, 32, 32) # Sample image
+
+    # Monitor
+    randnet.begin_monitor()
+    out = randnet(x)
+    randnet.get_edge_weights()
+    randnet.stop_monitor()
+    exit()
+
 
     # Draw the network
     draw_graph(randnet.G)

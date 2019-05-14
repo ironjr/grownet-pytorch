@@ -9,25 +9,39 @@ import networkx as nx
 from graph import get_graphs
 from layer import SeparableConv
 from randomnet import RandomNetwork
+from util import *
 
 
-class RandGrowRegular(nn.Module):
-    def __init__(self, Gs, nmaps=None, num_classes=1000, planes=109, drop_edge=0.1, dropout=0.2): #, cfg=None
-        '''RandGrow network in regular regime from Saining Xie et al. (Apr, 2019)
+class RandGrowTiny(nn.Module):
+    def __init__(self, Gs=None, nmaps=None, num_classes=10, planes=32, drop_edge=0, dropout=0, cfg=None):
+        '''RandGrow network in tiny regime for CIFAR training
 
         Arguments:
-            Gs (list(DiGraph)) : A dict of DAGs from random graph generator
+            Gs (list(DiGraph)) : A list of DAGs from the graph generator
             nmaps (list(dict)): saved node id map for optimal traversal
             num_classes (int): number of classes in classifier
             planes (int): number of channels after conv1 layer (C in the paper), small(78), regular(109|154)
             drop_edge (float): dropout probability of dropping edge
             dropout (float): dropout probability in the fully connected layer
+            cfg (dict): configuration of growing policy
         '''
-        super(RandGrowRegular, self).__init__()
+        super(RandGrowTiny, self).__init__()
+        self.cfg = cfg
+        self.planes = planes
+        self.num_classes = num_classes
         half_planes = math.ceil(planes / 2)
 
         if nmaps is None:
             nmaps = [None,] * 4
+        if Gs is None:
+            Gs = []
+            # Create simple graph
+            for _ in range(3):
+                G = nx.DiGraph()
+                G.add_node(0)
+                G.add_node(1)
+                G.add_edge(0, 1)
+                Gs.append(G)
 
         self.layer1 = nn.Sequential(
                 SeparableConv(3, half_planes, stride=2),
@@ -36,13 +50,12 @@ class RandGrowRegular(nn.Module):
         self.layer2 = RandomNetwork(half_planes, planes, Gs[0], drop_edge=drop_edge, nmap=nmaps[0])
         self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1], drop_edge=drop_edge, nmap=nmaps[1])
         self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2], drop_edge=drop_edge, nmap=nmaps[2])
-        self.layer5 = RandomNetwork(4 * planes, 8 * planes, Gs[3], drop_edge=drop_edge, nmap=nmaps[3])
 
-        self.conv6 = nn.Conv2d(8 * planes, 1280, kernel_size=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(1280, num_classes)
+        self.fc = nn.Linear(4 * planes, num_classes)
         self.dropout = nn.Dropout(dropout)
 
+        # Initialization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -52,176 +65,105 @@ class RandGrowRegular(nn.Module):
 
     def forward(self, x):
         out = self.layer1(x)
-        
-        # Since the first random layer is the memory bottleneck, its size is halved
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        out = self.layer5(out)
 
-        out = self.avgpool(self.conv6(out))
+        out = self.avgpool(out)
         out = out.view(out.size(0), -1)
         out = self.dropout(out)
         out = self.fc(out)
         return out
+
+    def expand(self):
+        # TODO add more policy
+
+        # Information to the optimizer
+        info = {}
+        info['new_nodes'] = []
+        info['changed_params'] = []
+
+        # Expand layer by layer
+        layer_names = ['layer2', 'layer3', 'layer4']
+        layers = [self.layer2, self.layer3, self.layer4]
+        for lname, layer in zip(layer_names, layers):
+            # Maximum edge excitation expansion policy
+            weights = layer.get_edge_weights()
+            edge_from, edge_to = max(weights)
+            drate = self.cfg['depthrate']
+            if torch.bernoulli(torch.Tensor([drate])) == 1:
+                info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
+            else:
+                info['new_nodes'].append(layer.increase_width(edge_from, edge_to))
+
+            # Name of the expanded node input weight
+            pname = lname + '.nodes.' + str(edge_to) + '.w'
+            info['changed_params'].append((pname, layer.nodes[edge_to].w,))
+            
+        return info
     
     def get_graphs(self):
-        return [layer.G for layer in [self.layer2, self.layer3, self.layer4, self.layer5]], \
-                [layer.nmap for layer in [self.layer2, self.layer3, self.layer4, self.layer5]]
+        return [layer.G for layer in [self.layer2, self.layer3, self.layer4]], \
+                [layer.nmap for layer in [self.layer2, self.layer3, self.layer4]]
 
+    def get_complexity(self, feature_size):
+        if isinstance(feature_size, (list, tuple)):
+            feature_size = feature_size[0] * feature_size[1]
+        else:
+            feature_size *= feature_size
 
-class RandGrowSmall(nn.Module):
-    def __init__(self, Gs, nmaps=None, num_classes=1000, planes=109): #, cfg=None
-        '''RandGrow network in small regime from Saining Xie et al. (Apr, 2019)
-
-        Arguments:
-            Gs (list(DiGraph)) : A list of DAGs from random graph generator
-            nmaps (list(dict)): saved node id map for optimal traversal
-            num_classes (int): number of classes in classifier
-            planes (int): number of channels after conv1 layer (C in the paper), small(78), regular(109|154)
-        '''
-        super(RandGrowSmall, self).__init__()
-        half_planes = math.ceil(planes / 2)
-
-        if nmaps is None:
-            nmaps = [None,] * 3
-
-        self.layer1 = nn.Sequential(
-                SeparableConv(3, half_planes, stride=2),
-                nn.BatchNorm2d(half_planes))
-
-        self.layer2 = nn.Sequential(
-                nn.ReLU(inplace=True),
-                SeparableConv(half_planes, planes, stride=2),
-                nn.BatchNorm2d(planes))
-
-        self.layer3 = RandomNetwork(planes, planes, Gs[0], nmap=nmaps[0])
-        self.layer4 = RandomNetwork(planes, 2 * planes, Gs[1], nmap=nmaps[1])
-        self.layer5 = RandomNetwork(2 * planes, 4 * planes, Gs[2], nmap=nmaps[2])
-
-        self.conv6 = nn.Conv2d(4 * planes, 1280, kernel_size=1)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(1280, num_classes)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x):
-        out = self.layer1(x)
+        # Evaluate the complexity of subnets
+        half_planes = math.ceil(self.planes / 2)
+        layer_nparams = [
+            3 * (9 + half_planes),
+            self.layer2.nparams,
+            self.layer3.nparams,
+            self.layer4.nparams,
+        ]
+        layers = [
+            None,
+            self.layer2,
+            self.layer3,
+            self.layer4,
+        ]
         
-        # Since the first random layer is the memory bottleneck, its size is halved
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = self.layer5(out)
+        flops = 0
+        nparams = 0
+        for i, (n, l) in enumerate(zip(layer_nparams, layers)):
+            # Conv
+            feature_size /= 4
+            flops += feature_size * n
+            nparams += n
 
-        out = self.avgpool(self.conv6(out))
-        out = out.view(out.size(0), -1)
-        out = self.fc(out)
-        return out
-    
-    def get_graphs(self):
-        return [layer.G for layer in [self.layer3, self.layer4, self.layer5]], \
-                [layer.nmap for layer in [self.layer3, self.layer4, self.layer5]]
+            # ReLU
+            if i == 1:
+                flops += feature_size * half_planes
+            elif i > 1:
+                ntops = len([n for n, deg in l.in_degree if deg == 0])
+                nnodes = len(l.nodes)
+                flops += feature_size * (ntops * l.in_planes + (nnodes - ntops) * l.planes)
 
-
-# TODO
-class RandGrowTiny(nn.Module):
-    def __init__(self, Gs, nmaps=None, num_classes=10, planes=109): #, cfg=None
-        '''RandGrow network in tiny regime for CIFAR training
-
-        Arguments:
-            Gs (list(DiGraph)) : A list of DAGs from random graph generator
-            nmaps (list(dict)): saved node id map for optimal traversal
-            num_classes (int): number of classes in classifier
-            planes (int): number of channels after conv1 layer (C in the paper), small(78), regular(109|154)
-        '''
-        super(RandGrowTiny, self).__init__()
-        half_planes = math.ceil(planes / 2)
-
-        if nmaps is None:
-            nmaps = [None,] * 3
-
-        self.layer1 = nn.Sequential(
-                SeparableConv(3, half_planes, stride=2),
-                nn.BatchNorm2d(half_planes))
-
-        self.layer2 = nn.Sequential(
-                nn.ReLU(inplace=True),
-                SeparableConv(half_planes, planes, stride=2),
-                nn.BatchNorm2d(planes))
-
-        self.layer3 = RandomNetwork(planes, planes, Gs[0], nmap=nmaps[0])
-        self.layer4 = RandomNetwork(planes, 2 * planes, Gs[1], nmap=nmaps[1])
-        self.layer5 = RandomNetwork(2 * planes, 4 * planes, Gs[2], nmap=nmaps[2])
-
-        self.conv6 = nn.Conv2d(4 * planes, 1280, kernel_size=1)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(1280, num_classes)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x):
-        out = self.layer1(x)
+        # Evaluate the complexity of classification nets
+        # Fully connected layer also has bias term
+        n = (4 * self.planes + 1) * self.num_classes
+        flops += n
+        nparams += n
         
-        # Since the first random layer is the memory bottleneck, its size is halved
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = self.layer5(out)
-
-        out = self.avgpool(self.conv6(out))
-        out = out.view(out.size(0), -1)
-        out = self.fc(out)
-        return out
-    
-    def get_graphs(self):
-        return [layer.G for layer in [self.layer3, self.layer4, self.layer5]], \
-                [layer.nmap for layer in [self.layer3, self.layer4, self.layer5]]
+        return int(flops), nparams
 
 
 # Wrappers for both network and graph configuration
-def RandGrowSmall78(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
-    assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
-    if Gs is None:
-        # Generate random graph
-        Gs = get_graphs(model, params, 3, nnodes, seeds)
-
-    # Generate network from graph configurations
-    net = RandGrowSmall(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=78)
-    Gs, nmaps = net.get_graphs()
-    return net, Gs, nmaps
-
-def RandGrowRegular109(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
-    assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
-    if Gs is None:
-        # Generate random graph
-        nnodes = [nnodes // 2, nnodes, nnodes, nnodes]
-        Gs = get_graphs(model, params, 4, nnodes, seeds)
-    
-    # Generate network from graph configurations
-    net = RandGrowRegular(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=109)
-    Gs, nmaps = net.get_graphs()
-    return net, Gs, nmaps
-
-def RandGrowRegular154(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=1000, seeds=None):
-    assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
-    if Gs is None:
-        # Generate random graph
-        nnodes = [nnodes // 2, nnodes, nnodes, nnodes]
-        Gs = get_graphs(model, params, 4, nnodes, seeds)
-    
-    # Generate network from graph configurations
-    net = RandGrowRegular(Gs=Gs, nmaps=nmaps, num_classes=num_classes, planes=154)
+# CIFAR training
+def RandGrowTinyNormal(Gs=None, nmaps=None, nnodes=32, num_classes=10, seeds=None, drop_edge=0, dropout=0, cfg=None):
+    net = RandGrowTiny(
+        Gs=Gs,
+        nmaps=nmaps,
+        num_classes=num_classes,
+        planes=51,
+        drop_edge=drop_edge,
+        dropout=dropout,
+        cfg=cfg
+    )
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
@@ -229,19 +171,36 @@ def RandGrowRegular154(Gs=None, nmaps=None, model=None, params=None, nnodes=32, 
 def test():
     from visualize import draw_graph, draw_network
 
-    model = 'WS'
-    params = {
-            'P': 0.75,
-            'K': 4, }
-    net, Gs, nmaps = RandGrowRegular154(model=model, params=params, seeds=[1, 2, 3, 4])
-    x = torch.randn(16, 3, 32, 32)
-    out = net(x)
-    print(out.size())
+    network_list = [RandGrowTinyNormal,]
+    cfg = {
+        'depthrate': 0.2,
+    }
 
-    # Draw the network
-    draw_graph(randnet.G)
-    draw_network(randnet, x, label='Vanilla')
+    for gen in network_list:
+        net, Gs, _ = gen(cfg=cfg)
 
+        # Evaluate the network
+        x = torch.randn(16, 3, 32, 32)
+        out = net(x)
+        print(out.size())
+        
+        # Draw the network
+        for G in Gs:
+            draw_graph(G)
+        draw_network(net, x, label=gen.__name__)
+
+        # Expand and Pause
+        net.expand()
+        input()
+
+        # Again, evaluate
+        out = net(x)
+        print(out.size())
+        
+        # Draw the network
+        for G in Gs:
+            draw_graph(G)
+        draw_network(net, x, label=gen.__name__)
 
 if __name__ == '__main__':
     test()

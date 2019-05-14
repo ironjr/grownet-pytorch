@@ -17,16 +17,19 @@ class SeparableConv(nn.Module):
 
 
 class Node(nn.Module):
-    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=True, monitor=False):
+    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=True, monitor=False, alpha=0.9, device='cuda'):
         super(Node, self).__init__()
         stride = 2 if downsample else 1
         self.depthwise = depthwise
         self._monitor = monitor
+        self.alpha = alpha # Coefficient for running mean
+        self.device = device
 
         # Top layer receives input from aggregation node (one)
         # NOTE: Top layer nodes require input weight
         if fin == 0:
             fin = 1
+        self.norms = [0,] * fin
         self.fin = fin
         self.w = nn.Parameter(torch.randn((1, fin))) # TODO Initialization?
         if depthwise:
@@ -44,10 +47,12 @@ class Node(nn.Module):
         Returns:
             Single Tensor with size (N, C, H, W)
         '''
-        if self._monitor:
-            x = F.linear(x, self.w) # (N,Cin,H,W,F)
+        if self.training and self._monitor:
+            x = x * self.w # (N,Cin,H,W,F)
             numel = x[:,:,:,:,0].numel()
-            self.norms = [torch.norm(x[:,:,:,:,i]) / numel for i in range(x.size(4))]
+            for i in range(x.size(4)):
+                self.norms[i] = self.norms[i] * self.alpha + \
+                        (torch.norm(x[:,:,:,:,i].data) / numel) * (1 - self.alpha)
             x = torch.sum(x, 4).squeeze(-1) # (N,Cin,H,W)
         else:
             x = F.linear(x, self.w).squeeze(-1) # (N,Cin,H,W)
@@ -58,17 +63,19 @@ class Node(nn.Module):
         if index >= self.fin:
             # Append at the end
             index = self.fin
-        w = self.w.data
+        w = self.w.data.cpu()
         w = torch.cat((w[:, :index], torch.randn(1, 1) * torch.norm(w), w[:, index:]), 1)
-        self.w = nn.Parameter(w)
+        self.w = nn.Parameter(w.to(self.device))
         self.fin += 1
+        self.norms = self.norms[:index] + [0,] + self.norms[index:]
 
     def del_input_edge(self, index):
         assert index < self.fin, 'index unavailable'
-        w = self.w.data
+        w = self.w.data.cpu()
         w = torch.cat((w[:, :index], w[:, (index + 1):]), 1)
-        self.w = nn.Parameter(w)
+        self.w = nn.Parameter(w.to(self.device))
         self.fin -= 1
+        self.norms = self.norms[:index] + self.norms[(index + 1):]
 
     def scale_input_edge(self, index, scale):
         self.w[0, index] *= scale

@@ -103,13 +103,11 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optim'])
         for group in optimizer.param_groups:
             group['lr'] = args.lr
+            group['momentum'] = args.momentum
         # Overwrite default hyperparameters for new run
-        group_decay, group_no_decay = optimizer.param_groups
-        group_decay['lr'] = args.lr
-        group_decay['momentum'] = args.momentum
+        group_decay, _, group_in_weights = optimizer.param_groups
         group_decay['weight_decay'] = args.weight_decay
-        group_no_decay['lr'] = args.lr
-        group_no_decay['momentum'] = args.momentum
+        #  group_in_weights['weight_decay'] = args.weight_decay
 
         args.start_epoch = checkpoint['epoch']
         start_iter = checkpoint['iteration']
