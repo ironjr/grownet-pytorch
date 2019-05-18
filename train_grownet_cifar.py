@@ -205,9 +205,15 @@ def main(args):
         # Save after test
         save('done' + str(epoch), model, optimizer, avgloss, epoch + 1)
 
-        # Do not expand at the last epoch
-        if (epoch + 1) % args.expand_period == 0 and \
-                epoch is not (args.start_epoch + args.num_epochs - 1):
+        # Expand the network
+        # TODO Do not expand at the last epoch
+        if (epoch + 1) % args.expand_period == 0: # and \
+                #  epoch is not (args.start_epoch + args.num_epochs - 1):
+
+            # Save expansion criterion based on the information flow
+            plot_infoflow(str(epoch), model, cmap, view=False,
+                    save_dir=graph_dir)
+
             # Update both module and the optimizer
             with torch.no_grad():
                 model = model.module
@@ -255,8 +261,6 @@ def main(args):
             
             # Save intermediate network topology
             plot_topology(str(epoch), model, args.batch_size, view=False,
-                    save_dir=graph_dir)
-            plot_infoflow(str(epoch), model, cmap, view=False,
                     save_dir=graph_dir)
 
         # Log the model size
@@ -448,7 +452,7 @@ def plot_infoflow(label, model, colormap, view=False, wrapped=True, save_dir='gr
         # Get current weights
         weights = layer.get_edge_weights()
         # Re-normalize weights to fit in [0, 1]
-        bias = min(weights.values())
+        bias = min(weights.values()) if len(weights) > 1 else 0.0
         scale = max(weights.values()) - bias
         colors.append({ k: colormap.get_colors((v - bias) / scale) for k, v in weights.items() })
 
