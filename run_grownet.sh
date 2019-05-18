@@ -1,8 +1,8 @@
-LABEL=grow-run9-dr2-wide
+LABEL=test
 MODEL=tiny16
 DROPOUT=0
 DROPEDGE=0
-DEPTHRATE=0.2
+DEPTHRATE=0.25
 CHECKPOINT=ckpt_$LABEL.pth
 
 rm checkpoint/$CHECKPOINT
@@ -30,7 +30,9 @@ python train_grownet_cifar.py \
     --lr=1e-1 \
     --num-epochs=30 \
     --no-cosine-annealing \
-    --no-label-smoothing
+    --no-label-smoothing \
+    --resume \
+    --checkpoint=checkpoint/$CHECKPOINT
 cp checkpoint/$LABEL/ckpt_done39.pth checkpoint/$CHECKPOINT
 python train_grownet_cifar.py \
     --label=$LABEL \
@@ -87,3 +89,4 @@ python train_grownet_cifar.py \
     --no-label-smoothing \
     --resume \
     --checkpoint=checkpoint/$CHECKPOINT
+cp checkpoint/$LABEL/ckpt_done239.pth checkpoint/$CHECKPOINT

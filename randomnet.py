@@ -419,14 +419,15 @@ def test():
     # Monitor
     randnet.begin_monitor()
     out = randnet(x)
-    randnet.get_edge_weights()
+    edge_weights = randnet.get_edge_weights()
     randnet.stop_monitor()
-    exit()
 
+    for i, e in enumerate(edge_weights):
+        print(i, edge_weights[e] * 100000)
 
     # Draw the network
     draw_graph(randnet.G)
-    draw_network(randnet, x, label='Vanilla')
+    #  draw_network(randnet, x, label='Vanilla')
 
     # Test increase_width
     if False:

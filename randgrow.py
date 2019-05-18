@@ -75,6 +75,19 @@ class RandGrowTiny(nn.Module):
         out = self.fc(out)
         return out
 
+    def get_sublayers(self):
+        layer_names = ['layer2', 'layer3', 'layer4']
+        layers = [self.layer2, self.layer3, self.layer4]
+        return zip(layer_names, layers)
+
+    def begin_monitor(self):
+        for _, layer in self.get_sublayers():
+            layer.begin_monitor()
+
+    def stop_monitor(self):
+        for _, layer in self.get_sublayers():
+            layer.stop_monitor()
+
     def expand(self):
         # TODO add more policy
 
@@ -84,9 +97,7 @@ class RandGrowTiny(nn.Module):
         info['changed_params'] = []
 
         # Expand layer by layer
-        layer_names = ['layer2', 'layer3', 'layer4']
-        layers = [self.layer2, self.layer3, self.layer4]
-        for lname, layer in zip(layer_names, layers):
+        for lname, layer in self.get_sublayers():
             # Maximum edge excitation expansion policy
             weights = layer.get_edge_weights()
             edge_from, edge_to = max(weights)

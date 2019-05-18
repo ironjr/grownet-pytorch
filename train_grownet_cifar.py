@@ -23,6 +23,7 @@ from scheduler import CosineAnnealingWithRestartsLR
 from util import *
 from visualize import *
 from logger import Logger
+from colormap import ColorMap
 
 
 def main(args):
@@ -56,7 +57,11 @@ def main(args):
     if not os.path.isdir(graph_dir):
         os.mkdir(graph_dir)
 
-    # Data transform
+    # Infoflow graph
+    if True: # TODO add option
+        cmap = ColorMap('colormap/gyr.txt')
+
+    # Data transforms and loaders
     print('==> Preparing data ..')
     traindir = os.path.join(args.data_root, 'train')
     traintf = transforms.Compose([
@@ -169,6 +174,17 @@ def main(args):
             if isinstance(v, torch.Tensor):
                 state[k] = v.cuda()
 
+    # Run a single test
+    if args.test_only:
+        # Begin monitoring weights
+        model.module.begin_monitor()
+
+        #  model.module.start_monitor()
+        test(valloader, model, criterion, (args.start_epoch + 1) * len(trainloader),
+                val_logger=val_logger)
+        plot_infoflow(args.label, model, cmap, view=False)
+        return
+
     # Main run
     for epoch in range(args.start_epoch, args.start_epoch + args.num_epochs):
         if scheduler is not None:
@@ -177,8 +193,12 @@ def main(args):
                 save('restart' + str(epoch - 1), model, optimizer, epoch)
 
         # Train and validate
+        # Begin monitoring weights
+        model.module.begin_monitor()
         train(trainloader, model, criterion, optimizer, epoch,
                 train_logger=train_logger, start_iter=start_iter)
+        # End monitoring weights
+        model.module.stop_monitor()
         avgloss = test(valloader, model, criterion, (epoch + 1) * len(trainloader),
                 val_logger=val_logger)
 
@@ -234,7 +254,9 @@ def main(args):
                 model.cuda()
             
             # Save intermediate network topology
-            show_graph(str(epoch), model, args.batch_size, view=False,
+            plot_topology(str(epoch), model, args.batch_size, view=False,
+                    save_dir=graph_dir)
+            plot_infoflow(str(epoch), model, cmap, view=False,
                     save_dir=graph_dir)
 
         # Log the model size
@@ -400,7 +422,7 @@ def save(label, model, optimizer, loss=float('inf'), epoch=0, iteration=0):
 
 
 # Visualize graphs
-def show_graph(label, model, batch_size, feature_size=32, view=False, wrapped=True, save_dir='graph'):
+def plot_topology(label, model, batch_size, feature_size=32, view=False, wrapped=True, save_dir='graph'):
     # Evaluate the network
     if wrapped:
         model.eval()
@@ -412,6 +434,27 @@ def show_graph(label, model, batch_size, feature_size=32, view=False, wrapped=Tr
     for i, G in enumerate(Gs):
         draw_graph(G, view=view, label=(os.path.join(save_dir, label + '.' + str(i))))
     draw_network(model, x, view=view, label=(os.path.join(save_dir, label)))
+
+
+def plot_infoflow(label, model, colormap, view=False, wrapped=True, save_dir='graph'):
+    # Evaluate the network
+    if wrapped:
+        model.eval()
+        model = model.module
+    Gs, _ = model.get_graphs()
+
+    colors = []
+    for lname, layer in model.get_sublayers():
+        # Get current weights
+        weights = layer.get_edge_weights()
+        # Re-normalize weights to fit in [0, 1]
+        bias = min(weights.values())
+        scale = max(weights.values()) - bias
+        colors.append({ k: colormap.get_colors((v - bias) / scale) for k, v in weights.items() })
+
+    for i, (G, color) in enumerate(zip(Gs, colors)):
+        name = label + '.' + str(i) + '.' + 'infoflow'
+        draw_graph(G, edge_colors=color, view=view, label=(os.path.join(save_dir, name)))
 
 
 if __name__ == '__main__':
@@ -459,6 +502,8 @@ if __name__ == '__main__':
             help='resume from checkpoint')
     parser.add_argument('--checkpoint', default='./checkpoint/ckpt.pth', type=str,
             help='path to the checkpoint to load')
+    parser.add_argument('--test-only', action='store_true',
+            help='run test sequence only once')
     args = parser.parse_args()
 
     # Run main routine

@@ -47,12 +47,13 @@ class Node(nn.Module):
         Returns:
             Single Tensor with size (N, C, H, W)
         '''
-        if self.training and self._monitor:
+        if self._monitor:
             x = x * self.w # (N,Cin,H,W,F)
             numel = x[:,:,:,:,0].numel()
             for i in range(x.size(4)):
-                self.norms[i] = self.norms[i] * self.alpha + \
+                norm = self.norms[i] * self.alpha + \
                         (torch.norm(x[:,:,:,:,i].data) / numel) * (1 - self.alpha)
+                self.norms[i] = norm.item()
             x = torch.sum(x, 4).squeeze(-1) # (N,Cin,H,W)
         else:
             x = F.linear(x, self.w).squeeze(-1) # (N,Cin,H,W)
