@@ -100,9 +100,9 @@ class RandGrowTiny(nn.Module):
         for lname, layer in self.get_sublayers():
             # Maximum edge excitation expansion policy
             weights = layer.get_edge_weights()
-            edge_from, edge_to = max(weights)
-            drate = self.cfg['depthrate']
-            if torch.bernoulli(torch.Tensor([drate])) == 1:
+            edge_from, edge_to = max(weights.keys(), key=(lambda key: weights[key]))
+            depthrate = self.cfg['depthrate']
+            if torch.bernoulli(torch.Tensor([depthrate])) == 1:
                 info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
             else:
                 info['new_nodes'].append(layer.increase_width(edge_from, edge_to))

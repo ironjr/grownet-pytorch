@@ -206,9 +206,8 @@ def main(args):
         save('done' + str(epoch), model, optimizer, avgloss, epoch + 1)
 
         # Expand the network
-        # TODO Do not expand at the last epoch
-        if (epoch + 1) % args.expand_period == 0: # and \
-                #  epoch is not (args.start_epoch + args.num_epochs - 1):
+        if (epoch + 1) % args.expand_period == 0 and \
+                epoch is not (args.start_epoch + args.num_epochs - 1):
 
             # Save expansion criterion based on the information flow
             plot_infoflow(str(epoch), model, cmap, view=False,
