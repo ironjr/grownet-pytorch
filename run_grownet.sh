@@ -8,6 +8,7 @@ CHECKPOINT=ckpt_$LABEL.pth
 rm checkpoint/$CHECKPOINT
 rm -rf log/$LABEL
 rm -rf checkpoint/$LABEL
+rm -rf graph/$LABEL
 python train_grownet_cifar.py \
     --label=$LABEL \
     --model=$MODEL \
