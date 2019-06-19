@@ -54,15 +54,21 @@ def group_weight(module):
             group_no_decay.append(np[1])
         elif np[0].endswith('bn.weight'):
             group_no_decay.append(np[1])
+        # Depthwise separable convolution
         elif np[0].endswith('pointwise.weight'):
             group_decay.append(np[1])
         elif np[0].endswith('depthwise.weight'):
+            group_decay.append(np[1])
+        # Normal convoluation
+        elif np[0].endswith('conv.weight'):
             group_decay.append(np[1])
         # Fully connected layers
         elif np[0].endswith('fc.weight'):
             group_decay.append(np[1])
         # Single convolutional layers at the top
         elif np[0].endswith('.1.weight'):
+            group_decay.append(np[1])
+        elif np[0].endswith('.0.weight'):
             group_decay.append(np[1])
         # Node input edge weights
         elif np[0].endswith('w'):

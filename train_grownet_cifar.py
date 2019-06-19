@@ -192,15 +192,19 @@ def main(args):
             if scheduler.save_flag:
                 save('restart' + str(epoch - 1), model, optimizer, epoch)
 
-        # Train and validate
-        # Begin monitoring weights
-        model.module.begin_monitor()
+        # Train
         train(trainloader, model, criterion, optimizer, epoch,
                 train_logger=train_logger, start_iter=start_iter)
-        # End monitoring weights
-        model.module.stop_monitor()
+
+        # Begin monitoring weights
+        model.module.begin_monitor()
+
+        # Validate
         avgloss = test(valloader, model, criterion, (epoch + 1) * len(trainloader),
                 val_logger=val_logger)
+
+        # End monitoring weights
+        model.module.stop_monitor()
 
         # Save after test
         save('done' + str(epoch), model, optimizer, avgloss, epoch + 1)
@@ -208,56 +212,14 @@ def main(args):
         # Expand the network
         if (epoch + 1) % args.expand_period == 0 and \
                 epoch is not (args.start_epoch + args.num_epochs - 1):
-
             # Save expansion criterion based on the information flow
             plot_infoflow(str(epoch), model, cmap, view=False,
                     save_dir=graph_dir)
 
-            # Update both module and the optimizer
-            with torch.no_grad():
-                model = model.module
+            # Modify the model
+            # TODO add options
+            expand_model(model, optimizer, policy=args.expand_policy, options=None)
 
-                # Cache input weights
-                group_in_weights = optimizer.param_groups[2]
-                id_in_weights = [id(p) for p in group_in_weights['params']]
-                input_weight_bufs = {}
-                for p in model.named_parameters():
-                    if p[0].endswith('.w'):
-                        input_weight_bufs[p[0]] = (id_in_weights.index(id(p[1])), p[1])
-
-                # Grow network a single step
-                expand_info = model.expand()
-
-                # 1. Update optimizer with newly created nodes
-                for new_node in expand_info['new_nodes']:
-                    for gi, g in enumerate(group_weight(new_node)):
-                        for p in g['params']:
-                            optimizer.param_groups[gi]['params'].append(p)
-
-                # 2. Update optimizer with changed input edge weights
-                for pname, param in expand_info['changed_params']:
-                    # Changed param is (currently) input weights
-                    pid, old_param = input_weight_bufs[pname]
-                    old_state = optimizer.state.pop(old_param)
-
-                    # Update state of optimizer
-                    # Assume optimizer on CUDA
-                    # Specific state to optim.SGD
-                    mbuf = old_state['momentum_buffer']
-                    mbuf = torch.cat((mbuf, torch.zeros(1, 1).cuda()), 1)
-                    optimizer.state[param]['momentum_buffer'] = mbuf
-                    # Remove old parameter
-                    del old_param
-                    del old_state
-
-                    # Update param_groups of optimizer
-                    del group_in_weights['params'][pid]
-                    group_in_weights['params'].insert(pid, param)
-                # Model back to work
-                model = torch.nn.DataParallel(model,
-                        device_ids=range(torch.cuda.device_count()))
-                model.cuda()
-            
             # Save intermediate network topology
             plot_topology(str(epoch), model, args.batch_size, view=False,
                     save_dir=graph_dir)
@@ -389,6 +351,54 @@ def test(valloader, model, criterion, iteration, val_logger=None):
     return losses.avg
 
 
+def expand_model(model, optimizer, policy='MaxEdgeStrengthPolicy', options=None):
+    # Update both module and the optimizer
+    with torch.no_grad():
+        model = model.module
+
+        # Cache input weights
+        group_in_weights = optimizer.param_groups[2]
+        id_in_weights = [id(p) for p in group_in_weights['params']]
+        input_weight_bufs = {}
+        for p in model.named_parameters():
+            if p[0].endswith('.w'):
+                input_weight_bufs[p[0]] = (id_in_weights.index(id(p[1])), p[1])
+
+        # Grow network a single step
+        expand_info = model.expand(policy=policy, options=options)
+
+        # 1. Update optimizer with newly created nodes
+        for new_node in expand_info['new_nodes']:
+            for gi, g in enumerate(group_weight(new_node)):
+                for p in g['params']:
+                    optimizer.param_groups[gi]['params'].append(p)
+
+        # 2. Update optimizer with changed input edge weights
+        for pname, param in expand_info['changed_params']:
+            # Changed param is (currently) input weights
+            pid, old_param = input_weight_bufs[pname]
+            old_state = optimizer.state.pop(old_param)
+
+            # Update state of optimizer
+            # Assume optimizer on CUDA
+            # Specific state to optim.SGD
+            mbuf = old_state['momentum_buffer']
+            mbuf = torch.cat((mbuf, torch.zeros(1, 1).cuda()), 1)
+            optimizer.state[param]['momentum_buffer'] = mbuf
+            # Remove old parameter
+            del old_param
+            del old_state
+
+            # Update param_groups of optimizer
+            del group_in_weights['params'][pid]
+            group_in_weights['params'].insert(pid, param)
+
+        # Model back to work
+        model = torch.nn.DataParallel(model,
+                device_ids=range(torch.cuda.device_count()))
+        model.cuda()
+
+
 # Save checkpoints
 def save(label, model, optimizer, loss=float('inf'), epoch=0, iteration=0):
     tqdm.write('==> Saving checkpoint')
@@ -467,7 +477,7 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='default', type=str,
             help='labels checkpoints and logs saved under')
     parser.add_argument('--model', default='tiny', type=str,
-            choices=('tiny16', 'tiny', 'tinywide'),
+            choices=('tiny16', 'tiny', 'tinywide',),
             help='model to run')
     parser.add_argument('--depthrate', default=0.2, type=float,
             help='increase depth probability')
@@ -477,6 +487,9 @@ if __name__ == '__main__':
             help='dropout rate before the fc layer')
     parser.add_argument('--expand-period', default=1, type=int,
             help='period of network expansion')
+    parser.add_argument('--expand-policy', default='MaxEdgeStrengthPolicy', type=str,
+            choices=('MaxEdgeStrengthPolicy', 'RandomPolicy',),
+            help='policy of network expansion')
     parser.add_argument('--no-label-smoothing', action='store_true',
             help='use vanilla cross entropy loss instead of label smoothing')
     parser.add_argument('--num-workers', default=2, type=int,

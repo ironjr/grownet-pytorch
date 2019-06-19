@@ -10,7 +10,7 @@ from layer import Node
 
 
 class RandomNetwork(nn.Module):
-    def __init__(self, in_planes, planes, G, nmap=None, downsample=True, drop_edge=0, monitor_flow=True, device='cuda'):
+    def __init__(self, in_planes, planes, G, nmap=None, downsample=True, depthwise=False, drop_edge=0, monitor_flow=True, device='cuda'):
         '''Random DAG network of nodes
 
         Arguments:
@@ -19,6 +19,7 @@ class RandomNetwork(nn.Module):
             G (DiGraph): DAG from random graph generator
             nmap (dict): saved node id map for optimal traversal
             downsample (bool): overrides downsample setting of the top layer
+            depthwise (bool): whether to use depthwise separable convolution
             monitor_flow (bool): monitor dataflow through the graph
             device (str): default device
         '''
@@ -27,6 +28,7 @@ class RandomNetwork(nn.Module):
         self.planes = planes
         self.G = G
         self.downsample = downsample
+        self.depthwise = depthwise
         self.drop_edge = drop_edge
         self.monitor_flow = monitor_flow
         self.device = device
@@ -43,11 +45,17 @@ class RandomNetwork(nn.Module):
             in_degree = self.in_degree(nodeid)
             if in_degree == 0:
                 node = Node(in_planes, planes, in_degree,
-                        downsample=downsample)
-                self.nparams += in_planes * (9 + planes)
+                        downsample=downsample, depthwise=depthwise)
+                if depthwise:
+                    self.nparams += in_planes * (9 + planes)
+                else:
+                    self.nparams += in_planes * (9 * planes)
             else:
-                node = Node(planes, planes, in_degree)
-                self.nparams += planes * (9 + planes)
+                node = Node(planes, planes, in_degree, depthwise=depthwise)
+                if depthwise:
+                    self.nparams += planes * (9 + planes)
+                else:
+                    self.nparams += planes * (9 * planes)
             self.nparams += in_degree # w
 
             # Bottom layer nodes
@@ -272,16 +280,20 @@ class RandomNetwork(nn.Module):
             in_planes = self.in_planes
         else:
             in_planes = self.planes
-        self.nparams += in_planes * (9 + self.planes) # depthwise conv
+        if self.depthwise:
+            self.nparams += in_planes * (9 + self.planes) # depthwise conv
+        else:
+            self.nparams += in_planes * (9 * self.planes) # convolution
         self.nparams += in_degree # w
 
         if template is None:
             # Create new node
             if in_degree == 0:
                 node = Node(in_planes, self.planes, in_degree,
-                        downsample=self.downsample)
+                        downsample=self.downsample, depthwise=self.depthwise)
             else:
-                node = Node(in_planes, self.planes, in_degree)
+                node = Node(in_planes, self.planes, in_degree,
+                        depthwise=self.depthwise)
             node.to(self.device)
 
             # Initialization

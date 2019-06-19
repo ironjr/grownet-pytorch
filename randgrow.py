@@ -1,3 +1,4 @@
+import random
 import math
 
 import torch
@@ -13,7 +14,7 @@ from util import *
 
 
 class RandGrowTiny(nn.Module):
-    def __init__(self, Gs=None, nmaps=None, num_classes=10, planes=32, drop_edge=0, dropout=0, cfg=None):
+    def __init__(self, Gs=None, nmaps=None, num_classes=10, planes=32, depthwise=False, drop_edge=0, dropout=0, cfg=None):
         '''RandGrow network in tiny regime for CIFAR training
 
         Arguments:
@@ -21,12 +22,14 @@ class RandGrowTiny(nn.Module):
             nmaps (list(dict)): saved node id map for optimal traversal
             num_classes (int): number of classes in classifier
             planes (int): number of channels after conv1 layer (C in the paper), small(78), regular(109|154)
+            depthwise (bool): whether to use depthwise separable convolution
             drop_edge (float): dropout probability of dropping edge
             dropout (float): dropout probability in the fully connected layer
             cfg (dict): configuration of growing policy
         '''
         super(RandGrowTiny, self).__init__()
         self.cfg = cfg
+        self.depthwise = depthwise
         self.planes = planes
         self.num_classes = num_classes
         half_planes = math.ceil(planes / 2)
@@ -43,13 +46,24 @@ class RandGrowTiny(nn.Module):
                 G.add_edge(0, 1)
                 Gs.append(G)
 
-        self.layer1 = nn.Sequential(
+        if depthwise:
+            self.layer1 = nn.Sequential(
                 SeparableConv(3, half_planes, stride=2),
-                nn.BatchNorm2d(half_planes))
+                nn.BatchNorm2d(half_planes)
+            )
+        else:
+            self.layer1 = nn.Sequential(
+                nn.Conv2d(3, half_planes, kernel_size=3, padding=1, stride=2),
+                nn.BatchNorm2d(half_planes)
+            )
 
-        self.layer2 = RandomNetwork(half_planes, planes, Gs[0], drop_edge=drop_edge, nmap=nmaps[0], downsample=False)
-        self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1], drop_edge=drop_edge, nmap=nmaps[1])
-        self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2], drop_edge=drop_edge, nmap=nmaps[2])
+        self.layer2 = RandomNetwork(half_planes, planes, Gs[0],
+                drop_edge=drop_edge, nmap=nmaps[0], downsample=False,
+                depthwise=depthwise)
+        self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1],
+                drop_edge=drop_edge, nmap=nmaps[1], depthwise=depthwise)
+        self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2],
+                drop_edge=drop_edge, nmap=nmaps[2], depthwise=depthwise)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(4 * planes, num_classes)
@@ -88,28 +102,58 @@ class RandGrowTiny(nn.Module):
         for _, layer in self.get_sublayers():
             layer.stop_monitor()
 
-    def expand(self):
-        # TODO add more policy
+    def expand(self, policy='MaxEdgeStrengthPolicy', options=None):
+        '''Expand network layer by specified policy
 
+        Arguments:
+            policy (str): name of the policy to execute
+            options (dict): optional arguments of the given policy
+        '''
         # Information to the optimizer
         info = {}
         info['new_nodes'] = []
         info['changed_params'] = []
 
-        # Expand layer by layer
-        for lname, layer in self.get_sublayers():
-            # Maximum edge excitation expansion policy
-            weights = layer.get_edge_weights()
-            edge_from, edge_to = max(weights.keys(), key=(lambda key: weights[key]))
-            depthrate = self.cfg['depthrate']
-            if torch.bernoulli(torch.Tensor([depthrate])) == 1:
-                info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
-            else:
-                info['new_nodes'].append(layer.increase_width(edge_from, edge_to))
+        if policy == 'MaxEdgeStrengthPolicy':
+            # Options to define frequency of expansion of each layer
+            #  if options is None:
+            #
 
-            # Name of the expanded node input weight
-            pname = lname + '.nodes.' + str(edge_to) + '.w'
-            info['changed_params'].append((pname, layer.nodes[edge_to].w,))
+            # Expand layer by layer
+            for lname, layer in self.get_sublayers():
+                # Maximum edge excitation expansion policy
+                weights = layer.get_edge_weights()
+                edge_from, edge_to = max(weights.keys(), key=(lambda key: weights[key]))
+                depthrate = self.cfg['depthrate']
+                if torch.bernoulli(torch.Tensor([depthrate])) == 1:
+                    info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
+                else:
+                    info['new_nodes'].append(layer.increase_width(edge_from, edge_to))
+
+                # Name of the expanded node input weight
+                pname = lname + '.nodes.' + str(edge_to) + '.w'
+                info['changed_params'].append((pname, layer.nodes[edge_to].w,))
+        elif policy == 'RandomPolicy':
+            # Options to define frequency of expansion of each layer
+            #  if options is None:
+            #
+
+            # Expand layer by layer
+            for lname, layer in self.get_sublayers():
+                # Random edge selection
+                edge_from, edge_to = random.choice(list(layer.G.edges))
+                depthrate = self.cfg['depthrate']
+                if torch.bernoulli(torch.Tensor([depthrate])) == 1:
+                    info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
+                else:
+                    info['new_nodes'].append(layer.increase_width(edge_from, edge_to))
+
+                # Name of the expanded node input weight
+                pname = lname + '.nodes.' + str(edge_to) + '.w'
+                info['changed_params'].append((pname, layer.nodes[edge_to].w,))
+            
+        else:
+            raise NotImplementedError
             
         return info
     
@@ -125,8 +169,12 @@ class RandGrowTiny(nn.Module):
 
         # Evaluate the complexity of subnets
         half_planes = math.ceil(self.planes / 2)
+        if self.depthwise:
+            layer1_nparams = 3 * (9 + half_planes)
+        else:
+            layer1_nparams = 3 * (9 * half_planes)
         layer_nparams = [
-            3 * (9 + half_planes),
+            layer1_nparams,
             self.layer2.nparams,
             self.layer3.nparams,
             self.layer4.nparams,
@@ -165,12 +213,13 @@ class RandGrowTiny(nn.Module):
 
 # Wrappers for both network and graph configuration
 # CIFAR training
-def RandGrowTinyNormal(Gs=None, nmaps=None, nnodes=32, num_classes=10, seeds=None, drop_edge=0, dropout=0, cfg=None):
+def RandGrowTinyNormal(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=False, drop_edge=0, dropout=0, cfg=None):
     net = RandGrowTiny(
         Gs=Gs,
         nmaps=nmaps,
         num_classes=num_classes,
-        planes=51,
+        planes=16,
+        depthwise=depthwise,
         drop_edge=drop_edge,
         dropout=dropout,
         cfg=cfg
@@ -201,7 +250,7 @@ def test():
         draw_network(net, x, label=gen.__name__)
 
         # Expand and Pause
-        net.expand()
+        net.expand(policy='RandomPolicy')
         input()
 
         # Again, evaluate

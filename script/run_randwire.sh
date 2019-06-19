@@ -9,29 +9,29 @@ python train_cifar.py \
     --model=$MODEL \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
-    --lr=1e-1 \
-    --num-epochs=80 \
+    --lr=2e-1 \
+    --num-epochs=140 \
     --no-cosine-annealing \
     --no-label-smoothing
-cp checkpoint/$LABEL/ckpt_test79.pth checkpoint/$CHECKPOINT
+cp checkpoint/$LABEL/ckpt_test139.pth checkpoint/$CHECKPOINT
 python train_cifar.py \
     --label=$LABEL \
     --model=$MODEL \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
-    --lr=1e-2 \
-    --num-epochs=80 \
+    --lr=2e-2 \
+    --num-epochs=60 \
     --no-cosine-annealing \
     --no-label-smoothing \
     --resume \
     --checkpoint=checkpoint/$CHECKPOINT
-cp checkpoint/$LABEL/ckpt_test159.pth checkpoint/$CHECKPOINT
+cp checkpoint/$LABEL/ckpt_test199.pth checkpoint/$CHECKPOINT
 python train_cifar.py \
     --label=$LABEL \
     --model=$MODEL \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
-    --lr=1e-3 \
+    --lr=2e-3 \
     --num-epochs=40 \
     --no-cosine-annealing \
     --no-label-smoothing \

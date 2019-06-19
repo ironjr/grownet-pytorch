@@ -17,7 +17,7 @@ class SeparableConv(nn.Module):
 
 
 class Node(nn.Module):
-    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=True, monitor=False, alpha=0.9, device='cuda'):
+    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=False, monitor=False, alpha=0.9, device='cuda'):
         super(Node, self).__init__()
         stride = 2 if downsample else 1
         self.depthwise = depthwise
