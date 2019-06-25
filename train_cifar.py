@@ -20,6 +20,7 @@ from randwire import RandWireTinyNormal, RandWireTinyWide
 from loss import CEWithLabelSmoothingLoss
 from scheduler import CosineAnnealingWithRestartsLR
 from util import *
+from visualize import *
 from logger import Logger
 
 
@@ -45,6 +46,14 @@ def main(args):
     checkpoint_dir = os.path.join(checkpoint_root, args.label)
     if not os.path.isdir(checkpoint_dir):
         os.mkdir(checkpoint_dir)
+
+    # Graph save directory
+    graph_root = './graph'
+    if not os.path.isdir(graph_root):
+        os.mkdir(graph_root)
+    graph_dir = os.path.join(graph_root, args.label)
+    if not os.path.isdir(graph_dir):
+        os.mkdir(graph_dir)
 
     # Data transform
     print('==> Preparing data ..')
@@ -177,6 +186,20 @@ def main(args):
         for k, v in state.items():
             if isinstance(v, torch.Tensor):
                 state[k] = v.cuda()
+
+    # Run a single test
+    if args.test_only:
+        # Begin monitoring weights
+        #  model.module.begin_monitor()
+
+        #  model.module.start_monitor()
+        test(valloader, model, graphs, criterion, args.start_epoch,
+                (args.start_epoch + 1) * len(trainloader), optimizer=optimizer,
+                val_logger=val_logger)
+        #  plot_infoflow(args.label, model, cmap, view=False)
+        plot_topology(args.label, model, args.batch_size, feature_size=32,
+                view=False, save_dir=graph_dir)
+        return
 
     # Main run
     for epoch in range(args.start_epoch, args.start_epoch + args.num_epochs):
@@ -365,6 +388,8 @@ if __name__ == '__main__':
             help='resume from checkpoint')
     parser.add_argument('--checkpoint', default='./checkpoint/ckpt.pth', type=str,
             help='path to the checkpoint to load')
+    parser.add_argument('--test-only', action='store_true',
+            help='run test sequence only once')
     args = parser.parse_args()
 
     # Run main routine

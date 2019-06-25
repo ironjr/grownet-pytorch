@@ -257,12 +257,12 @@ class RandWireTiny(nn.Module):
 
         if depthwise:
             self.layer1 = nn.Sequential(
-                SeparableConv(3, half_planes, stride=2),
+                SeparableConv(3, half_planes, stride=1),
                 nn.BatchNorm2d(half_planes)
             )
         else:
             self.layer1 = nn.Sequential(
-                nn.Conv2d(3, half_planes, kernel_size=3, padding=1, stride=2),
+                nn.Conv2d(3, half_planes, kernel_size=3, padding=1, stride=1),
                 nn.BatchNorm2d(half_planes)
             )
 
@@ -275,8 +275,8 @@ class RandWireTiny(nn.Module):
                 drop_edge=drop_edge, nmap=nmaps[2], depthwise=depthwise)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(4 * planes, num_classes)
         self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(4 * planes, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -330,7 +330,6 @@ class RandWireTiny(nn.Module):
         nparams = 0
         for i, (n, l) in enumerate(zip(layer_nparams, layers)):
             # Conv
-            feature_size /= 4
             flops += feature_size * n
             nparams += n
 
@@ -341,6 +340,9 @@ class RandWireTiny(nn.Module):
                 ntops = len([n for n, deg in l.in_degree if deg == 0])
                 nnodes = len(l.nodes)
                 flops += feature_size * (ntops * l.in_planes + (nnodes - ntops) * l.planes)
+
+            # Downsample
+            feature_size /= 4
 
         # Evaluate the complexity of classification nets
         # Fully connected layer also has bias term

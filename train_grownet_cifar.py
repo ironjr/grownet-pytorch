@@ -63,7 +63,6 @@ def main(args):
 
     # Data transforms and loaders
     print('==> Preparing data ..')
-    traindir = os.path.join(args.data_root, 'train')
     traintf = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -104,7 +103,8 @@ def main(args):
             )
         else:
             raise NotImplementedError
-        model.load_state_dict(checkpoint['model'])
+        if not args.reset_model:
+            model.load_state_dict(checkpoint['model'])
         
         optimizer = optim.SGD(
             group_weight(model),
@@ -112,19 +112,21 @@ def main(args):
             momentum=args.momentum,
             weight_decay=args.weight_decay
         )
-        optimizer.load_state_dict(checkpoint['optim'])
-        for group in optimizer.param_groups:
-            group['lr'] = args.lr
-            group['momentum'] = args.momentum
-        # Overwrite default hyperparameters for new run
-        group_decay, _, group_in_weights = optimizer.param_groups
-        group_decay['weight_decay'] = args.weight_decay
-        #  group_in_weights['weight_decay'] = args.weight_decay
+        if not args.reset_model:
+            optimizer.load_state_dict(checkpoint['optim'])
+            for group in optimizer.param_groups:
+                group['lr'] = args.lr
+                group['momentum'] = args.momentum
+            # Overwrite default hyperparameters for new run
+            group_decay, _, group_in_weights = optimizer.param_groups
+            group_decay['weight_decay'] = args.weight_decay
 
-        args.start_epoch = checkpoint['epoch']
-        start_iter = checkpoint['iteration']
-        print("Last loss: %.3f" % (checkpoint['loss']))
-        print("Training start from epoch %d iteration %d" % (args.start_epoch, start_iter))
+            args.start_epoch = checkpoint['epoch']
+            start_iter = checkpoint['iteration']
+            print("Last loss: %.3f" % (checkpoint['loss']))
+            print("Training start from epoch %d iteration %d" % (args.start_epoch, start_iter))
+        else:
+            print("Model loaded with reset weights")
     else:
         # Start from scratch
         print('==> Generating new model..')
@@ -144,8 +146,8 @@ def main(args):
         optimizer = optim.SGD(
             group_weight(model),
             lr=args.lr,
-            momentum=0.9,
-            weight_decay=5e-5
+            momentum=args.momentum,
+            weight_decay=args.weight_decay
         )
 
         print('Model generated with depth rate : ', cfg['depthrate'])
@@ -434,42 +436,6 @@ def save(label, model, optimizer, loss=float('inf'), epoch=0, iteration=0):
     tqdm.write('==> Save done!')
 
 
-# Visualize graphs
-def plot_topology(label, model, batch_size, feature_size=32, view=False, wrapped=True, save_dir='graph'):
-    # Evaluate the network
-    if wrapped:
-        model.eval()
-        model = model.module
-    Gs, _ = model.get_graphs()
-
-    # Draw the network
-    x = torch.randn(batch_size, 3, feature_size, feature_size).cuda()
-    for i, G in enumerate(Gs):
-        draw_graph(G, view=view, label=(os.path.join(save_dir, label + '.' + str(i))))
-    draw_network(model, x, view=view, label=(os.path.join(save_dir, label)))
-
-
-def plot_infoflow(label, model, colormap, view=False, wrapped=True, save_dir='graph'):
-    # Evaluate the network
-    if wrapped:
-        model.eval()
-        model = model.module
-    Gs, _ = model.get_graphs()
-
-    colors = []
-    for lname, layer in model.get_sublayers():
-        # Get current weights
-        weights = layer.get_edge_weights()
-        # Re-normalize weights to fit in [0, 1]
-        bias = min(weights.values()) if len(weights) > 1 else 0.0
-        scale = max(weights.values()) - bias
-        colors.append({ k: colormap.get_colors((v - bias) / scale) for k, v in weights.items() })
-
-    for i, (G, color) in enumerate(zip(Gs, colors)):
-        name = label + '.' + str(i) + '.' + 'infoflow'
-        draw_graph(G, edge_colors=color, view=view, label=(os.path.join(save_dir, name)))
-
-
 if __name__ == '__main__':
     assert torch.cuda.is_available(), 'CUDA is required!'
 
@@ -507,7 +473,7 @@ if __name__ == '__main__':
     parser.add_argument('--momentum', default=0.9, type=float,
             help='SGD momentum')
     parser.add_argument('--weight-decay', default=1e-4, type=float,
-            help='weight decay for SGD (small: 5e-5, large: 1e-5)')
+            help='weight decay for SGD (tiny: 1e-4, small: 5e-5, large: 1e-5)')
     parser.add_argument('--batch-size', default=128, type=int,
             help='size of a minibatch')
     parser.add_argument('--start-epoch', default=0, type=int,
@@ -520,6 +486,8 @@ if __name__ == '__main__':
             help='path to the checkpoint to load')
     parser.add_argument('--test-only', action='store_true',
             help='run test sequence only once')
+    parser.add_argument('--reset-model', action='store_true',
+            help='reset all weights in the loaded model')
     args = parser.parse_args()
 
     # Run main routine

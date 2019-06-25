@@ -1,9 +1,48 @@
+import os
 from io import BytesIO
+
+import torch
 
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from torchviz import make_dot
+
+
+# Visualize graphs
+def plot_topology(label, model, batch_size, feature_size=32, view=False, wrapped=True, save_dir='graph'):
+    # Evaluate the network
+    if wrapped:
+        model.eval()
+        model = model.module
+    Gs, _ = model.get_graphs()
+
+    # Draw the network
+    x = torch.randn(batch_size, 3, feature_size, feature_size).cuda()
+    for i, G in enumerate(Gs):
+        draw_graph(G, view=view, label=(os.path.join(save_dir, label + '.' + str(i))))
+    draw_network(model, x, view=view, label=(os.path.join(save_dir, label)))
+
+
+def plot_infoflow(label, model, colormap, view=False, wrapped=True, save_dir='graph'):
+    # Evaluate the network
+    if wrapped:
+        model.eval()
+        model = model.module
+    Gs, _ = model.get_graphs()
+
+    colors = []
+    for lname, layer in model.get_sublayers():
+        # Get current weights
+        weights = layer.get_edge_weights()
+        # Re-normalize weights to fit in [0, 1]
+        bias = min(weights.values()) if len(weights) > 1 else 0.0
+        scale = max(weights.values()) - bias
+        colors.append({ k: colormap.get_colors((v - bias) / scale) for k, v in weights.items() })
+
+    for i, (G, color) in enumerate(zip(Gs, colors)):
+        name = label + '.' + str(i) + '.' + 'infoflow'
+        draw_graph(G, edge_colors=color, view=view, label=(os.path.join(save_dir, name)))
 
 
 def draw_graph(G, edge_colors=None, view=True, label=None):
