@@ -2,7 +2,9 @@ import argparse
 import os
 import time
 from copy import deepcopy
+
 from tqdm import tqdm
+from ptflops import get_model_complexity_info
 
 import numpy as np
 
@@ -17,7 +19,7 @@ import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from randgrow import RandGrowTinyNormal
+from randgrow import RandGrowTinyNormal, RandGrowTiny18
 from loss import CEWithLabelSmoothingLoss
 from scheduler import CosineAnnealingWithRestartsLR
 from util import *
@@ -101,6 +103,14 @@ def main(args):
                 dropout=args.dropout,
                 cfg=cfg
             )
+        elif args.model in ['tiny18']:
+            model, _, _ = RandGrowTiny18(
+                Gs=Gs,
+                nmaps=nmaps,
+                drop_edge=args.drop_edge,
+                dropout=args.dropout,
+                cfg=cfg
+            )
         else:
             raise NotImplementedError
         if not args.reset_model:
@@ -136,6 +146,12 @@ def main(args):
         }
         if args.model in ['tiny16', 'tiny']:
             model, _, _ = RandGrowTinyNormal(
+                drop_edge=args.drop_edge,
+                dropout=args.dropout,
+                cfg=cfg
+            )
+        elif args.model in ['tiny18']:
+            model, _, _ = RandGrowTiny18(
                 drop_edge=args.drop_edge,
                 dropout=args.dropout,
                 cfg=cfg
@@ -178,13 +194,25 @@ def main(args):
 
     # Run a single test
     if args.test_only:
-        # Begin monitoring weights
         model.module.begin_monitor()
-
-        #  model.module.start_monitor()
         test(valloader, model, criterion, (args.start_epoch + 1) * len(trainloader),
                 val_logger=val_logger)
         plot_infoflow(args.label, model, cmap, view=False)
+        model.module.stop_monitor()
+
+        # Complexity test
+        flops, nparams = get_model_complexity_info(model.module.cpu(), (3, 32, 32), \
+                as_strings=False, print_per_layer_stat=False)
+        flops /= 1000000.0
+        nparams /= 1000000.0
+
+        print('Complexity result')
+        if flops > 1000.0:
+            flops /= 1000.0
+            print('FLOPs   : {:.3f}B'.format(flops))
+        else:
+            print('FLOPs   : {:.3f}M'.format(flops))
+        print('#Params : {:.3f}M'.format(nparams))
         return
 
     # Main run
@@ -443,7 +471,7 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='default', type=str,
             help='labels checkpoints and logs saved under')
     parser.add_argument('--model', default='tiny', type=str,
-            choices=('tiny16', 'tiny', 'tinywide',),
+            choices=('tiny16', 'tiny', 'tiny18',),
             help='model to run')
     parser.add_argument('--depthrate', default=0.2, type=float,
             help='increase depth probability')

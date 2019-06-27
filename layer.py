@@ -30,12 +30,15 @@ class Node(nn.Module):
         if fin == 0:
             fin = 1
         self.norms = [0,] * fin
+        self.nnorm = 0
         self.fin = fin
         self.w = nn.Parameter(torch.randn((1, fin))) # TODO Initialization?
         if depthwise:
             self.conv = SeparableConv(in_planes, planes, stride=stride)
         else:
-            self.conv = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, stride=stride)
+            self.conv = nn.Conv2d(
+                in_planes, planes, kernel_size=3, padding=1, stride=stride
+            )
         self.bn = nn.BatchNorm2d(planes)
 
     def forward(self, x):
@@ -49,10 +52,18 @@ class Node(nn.Module):
         '''
         if self._monitor:
             x = x * self.w # (N,Cin,H,W,F)
+
+            # For each fanin branch, evaluate average norm
             numel = x[:,:,:,:,0].numel()
             for i in range(x.size(4)):
-                norm = self.norms[i] * self.alpha + \
-                        (torch.norm(x[:,:,:,:,i].data) / numel) * (1 - self.alpha)
+                # simple moving average
+                #  norm = self.norms[i] * self.alpha + \
+                #          (torch.norm(x[:,:,:,:,i].data) / numel) * (1 - self.alpha)
+                # cumulative moving average
+                norm = (self.nnorm * self.norms[i] + (torch.norm(x[:,:,:,:,i].data) / numel)) / \
+                        (self.nnorm + 1)
+                self.nnorm += 1
+
                 self.norms[i] = norm.item()
             x = torch.sum(x, 4).squeeze(-1) # (N,Cin,H,W)
         else:
@@ -83,6 +94,8 @@ class Node(nn.Module):
 
     def begin_monitor(self):
         self._monitor = True
+        self.norms = [0,] * self.fin
+        self.nnorm = 0
 
     def stop_monitor(self):
         self._monitor = False

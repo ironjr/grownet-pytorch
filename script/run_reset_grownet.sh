@@ -1,9 +1,25 @@
-LABEL=valmon-mes-dr5-do0-v16-lr2-str1
+#!/bin/bash
+LABEL=default
 MODEL=tiny16
 DROPOUT=0
 DROPEDGE=0
 DEPTHRATE=0.5
 POLICY=RandomPolicy
+
+# Options can be passes by arguments
+while getopts l:m:o:e:r:p: option
+do
+    case "${option}"
+        in
+        l) LABEL=${OPTARG};;
+        m) MODEL=${OPTARG};;
+        o) DROPOUT=${OPTARG};;
+        e) DROPEDGE=${OPTARG};;
+        r) DEPTHRATE=${OPTARG};;
+        p) POLICY=${OPTARG};;
+    esac
+done
+
 CHECKPOINT=ckpt_$LABEL.pth
 LABEL=$LABEL-rst-do0
 

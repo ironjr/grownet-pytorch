@@ -1,7 +1,21 @@
+#!/bin/bash
 LABEL=tiny16-do0-conn-str1
 MODEL=tiny16
 DROPOUT=0
 DROPEDGE=0
+
+# Options can be passes by arguments
+while getopts l:m:o:e: option
+do
+    case "${option}"
+        in
+        l) LABEL=${OPTARG};;
+        m) MODEL=${OPTARG};;
+        o) DROPOUT=${OPTARG};;
+        e) DROPEDGE=${OPTARG};;
+    esac
+done
+
 CHECKPOINT=ckpt_$LABEL.pth
 
 # Remove previous works with the same label

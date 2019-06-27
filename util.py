@@ -86,17 +86,16 @@ def group_weight(module):
     return groups
 
 
-def test_complexity(network_list, graph_types, graph_params, input_size=224, num_samples=100):
+def test_complexity(network_list, graph_types, graph_params, input_size=224, num_samples=1):
     '''Test computational complexity of the given networks
     '''
     # Handle single test samples
     if not isinstance(network_list, (list, tuple)):
         network_list = [network_list,]
-    num_networks = len(network_list)
     if isinstance(graph_types, str):
-        graph_types = [graph_types,] * num_networks
+        graph_types = [graph_types for _ in network_list]
     if isinstance(graph_params, dict):
-        graph_params = [graph_params,] * num_networks
+        graph_params = [graph_params for _ in network_list]
     if isinstance(input_size, int):
         input_size = (input_size, input_size)
 
@@ -112,6 +111,7 @@ def test_complexity(network_list, graph_types, graph_params, input_size=224, num
         test_name = '{}[\'{}\'({})]'.format(gen.__name__, gtype, gparam_str)
         test_names.append(test_name)
         print(test_name)
+        input()
 
         # Evaluate
         flops_list = []

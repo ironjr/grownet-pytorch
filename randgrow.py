@@ -229,6 +229,20 @@ def RandGrowTinyNormal(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwis
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
+def RandGrowTiny18(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=False, drop_edge=0, dropout=0, cfg=None):
+    net = RandGrowTiny(
+        Gs=Gs,
+        nmaps=nmaps,
+        num_classes=num_classes,
+        planes=18,
+        depthwise=depthwise,
+        drop_edge=drop_edge,
+        dropout=dropout,
+        cfg=cfg
+    )
+    Gs, nmaps = net.get_graphs()
+    return net, Gs, nmaps
+
 
 def test():
     from visualize import draw_graph, draw_network
