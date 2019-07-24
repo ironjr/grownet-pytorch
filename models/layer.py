@@ -17,20 +17,24 @@ class SeparableConv(nn.Module):
 
 
 class Node(nn.Module):
-    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=False, monitor=False, alpha=0.9, device='cuda'):
+    def __init__(self, in_planes, planes, fin, downsample=False, depthwise=False, monitor=None, opt=dict(alpha=0.9), device='cuda'):
         super(Node, self).__init__()
         stride = 2 if downsample else 1
         self.depthwise = depthwise
         self._monitor = monitor
-        self.alpha = alpha # Coefficient for running mean
+        self._monitor_opt = opt
+        if opt is not None:
+            # Coefficient for running mean
+            if 'alpha' in opt:
+                self.alpha = opt['alpha']
         self.device = device
 
         # Top layer receives input from aggregation node (one)
         # NOTE: Top layer nodes require input weight
         if fin == 0:
             fin = 1
-        self.norms = [0,] * fin
-        self.nnorm = 0
+        self.strengths = [0,] * fin
+        self.nsamples = 0
         self.fin = fin
         self.w = nn.Parameter(torch.randn((1, fin))) # TODO Initialization?
         if depthwise:
@@ -50,21 +54,39 @@ class Node(nn.Module):
         Returns:
             Single Tensor with size (N, C, H, W)
         '''
-        if self._monitor:
+        if self._monitor is not None:
             x = x * self.w # (N,Cin,H,W,F)
 
             # For each fanin branch, evaluate average norm
             numel = x[:,:,:,:,0].numel()
             for i in range(x.size(4)):
-                # simple moving average
-                #  norm = self.norms[i] * self.alpha + \
-                #          (torch.norm(x[:,:,:,:,i].data) / numel) * (1 - self.alpha)
-                # cumulative moving average
-                norm = (self.nnorm * self.norms[i] + (torch.norm(x[:,:,:,:,i].data) / numel)) / \
-                        (self.nnorm + 1)
-                self.nnorm += 1
+                # Monitored value consists of the parameter and its statistics
+                # First, we consider about the parameter and then retrieve its
+                # statistics
 
-                self.norms[i] = norm.item()
+                # Euclidean norm
+                if self._monitor['param'] == 'l2norm':
+                    strength = torch.norm(x[:,:,:,:,i].data) / numel
+                # maximum (sup norm)
+                elif self._monitor['param'] == 'max':
+                    strength = torch.max(x[:,:,:,:,i].data)
+                else:
+                    raise NotImplementedError
+
+                # simple moving average
+                if self._monitor['stat'] == 'ma':
+                    strength = self.strengths[i] * self.alpha + \
+                            strength * \
+                            (1 - self.alpha)
+                # cumulative moving average
+                elif self._monitor['stat'] == 'cma':
+                    strength = (self.nsamples * self.strengths[i] + strength) / \
+                            (self.nsamples + 1)
+                    self.nsamples += 1
+                else:
+                    raise NotImplementedError
+
+                self.strengths[i] = strength.item()
             x = torch.sum(x, 4).squeeze(-1) # (N,Cin,H,W)
         else:
             x = F.linear(x, self.w).squeeze(-1) # (N,Cin,H,W)
@@ -79,7 +101,7 @@ class Node(nn.Module):
         w = torch.cat((w[:, :index], torch.randn(1, 1) * torch.norm(w), w[:, index:]), 1)
         self.w = nn.Parameter(w.to(self.device))
         self.fin += 1
-        self.norms = self.norms[:index] + [0,] + self.norms[index:]
+        self.strengths = self.strengths[:index] + [0,] + self.strengths[index:]
 
     def del_input_edge(self, index):
         assert index < self.fin, 'index unavailable'
@@ -87,16 +109,16 @@ class Node(nn.Module):
         w = torch.cat((w[:, :index], w[:, (index + 1):]), 1)
         self.w = nn.Parameter(w.to(self.device))
         self.fin -= 1
-        self.norms = self.norms[:index] + self.norms[(index + 1):]
+        self.strengths = self.strengths[:index] + self.strengths[(index + 1):]
 
     def scale_input_edge(self, index, scale):
         self.w[0, index] *= scale
 
-    def begin_monitor(self):
-        self._monitor = True
-        self.norms = [0,] * self.fin
-        self.nnorm = 0
+    def begin_monitor(self, monitor):
+        self._monitor = monitor
+        self.strengths = [0,] * self.fin
+        self.nsamples = 0
 
     def stop_monitor(self):
-        self._monitor = False
+        self._monitor = None
 

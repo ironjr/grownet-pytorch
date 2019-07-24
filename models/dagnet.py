@@ -6,11 +6,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from layer import Node
+from .layer import Node
 
 
-class RandomNetwork(nn.Module):
-    def __init__(self, in_planes, planes, G, nmap=None, downsample=True, depthwise=False, drop_edge=0, monitor_flow=True, device='cuda'):
+class DAGNet(nn.Module):
+    def __init__(self, in_planes, planes, G, nmap=None, downsample=True, depthwise=False, drop_edge=0, monitor_flow=False, device='cuda'):
         '''Random DAG network of nodes
 
         Arguments:
@@ -23,7 +23,7 @@ class RandomNetwork(nn.Module):
             monitor_flow (bool): monitor dataflow through the graph
             device (str): default device
         '''
-        super(RandomNetwork, self).__init__()
+        super(DAGNet, self).__init__()
         self.in_planes = in_planes
         self.planes = planes
         self.G = G
@@ -214,18 +214,23 @@ class RandomNetwork(nn.Module):
                     if ispan >= order and inode < order]
         return nxorder, live
 
-    def begin_monitor(self):
+    def begin_monitor(self, policy=dict(param='max', stat='cma')):
         for n in self.nodes:
-            n.begin_monitor()
+            n.begin_monitor(policy)
+        self.monitor_flow = True
 
     def stop_monitor(self):
         for n in self.nodes:
             n.stop_monitor()
+        self.monitor_flow = False
 
-    def get_edge_weights(self):
+    def get_edge_strength(self):
         weights = {}
         for ni, n in enumerate(self.nodes):
-            weights.update({ (p, ni): n.norms[pi] for pi, p in enumerate(self.pred[ni]) })
+            weights.update({
+                (p, ni): n.strengths[pi]
+                for pi, p in enumerate(self.pred[ni])
+            })
         return weights
 
     def add_node(self, edges, template=None):
@@ -425,13 +430,13 @@ def test():
     # Generate random graph
     graphgen = GraphGenerator('WS', { 'K': 4, 'P': 0.75, })
     G = graphgen.generate(nnode=16)
-    randnet = RandomNetwork(in_planes=3, planes=16, G=G, downsample=False)
+    randnet = DAGNet(in_planes=3, planes=16, G=G, downsample=False)
     x = torch.randn(8, 3, 32, 32) # Sample image
 
     # Monitor
     randnet.begin_monitor()
     out = randnet(x)
-    edge_weights = randnet.get_edge_weights()
+    edge_weights = randnet.get_edge_strength()
     randnet.stop_monitor()
 
     for i, e in enumerate(edge_weights):

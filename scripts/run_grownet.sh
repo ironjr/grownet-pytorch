@@ -1,13 +1,15 @@
 #!/bin/bash
 LABEL=default
-MODEL=tiny16
+MODEL=tiny18
 DROPOUT=0
 DROPEDGE=0
 DEPTHRATE=0.5
-POLICY=MaxEdgeStrengthPolicy
+EXPAND_POLICY=MaxEdgeStrengthPolicy
+MONITOR_PARAM=max
+MONITOR_STAT=cma
 
 # Options can be passes by arguments
-while getopts l:m:o:e:r:p: option
+while getopts l:m:o:e:r:p:q:s: option
 do
     case "${option}"
         in
@@ -16,7 +18,9 @@ do
         o) DROPOUT=${OPTARG};;
         e) DROPEDGE=${OPTARG};;
         r) DEPTHRATE=${OPTARG};;
-        p) POLICY=${OPTARG};;
+        p) EXPAND_POLICY=${OPTARG};;
+        q) MONITOR_PARAM=${OPTARG};;
+        s) MONITOR_STAT=${OPTARG};;
     esac
 done
 
@@ -35,8 +39,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=1 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-1 \
     --num-epochs=10 \
     --no-cosine-annealing \
@@ -48,8 +54,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=2 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-1 \
     --num-epochs=30 \
     --no-cosine-annealing \
@@ -63,8 +71,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=4 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-1 \
     --num-epochs=40 \
     --no-cosine-annealing \
@@ -78,8 +88,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=10000 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-1 \
     --num-epochs=60 \
     --no-cosine-annealing \
@@ -93,8 +105,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=10000 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-2 \
     --num-epochs=60 \
     --no-cosine-annealing \
@@ -108,8 +122,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=10000 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-3 \
     --num-epochs=40 \
     --no-cosine-annealing \

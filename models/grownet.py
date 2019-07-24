@@ -7,15 +7,15 @@ import torch.nn.functional as F
 
 import networkx as nx
 
-from graph import get_graphs
-from layer import SeparableConv
-from randomnet import RandomNetwork
-from util import *
+from .layer import SeparableConv
+from .dagnet import DAGNet
+from utils.graph import get_graphs
+from utils.util import *
 
 
-class RandGrowTiny(nn.Module):
+class GrowNetTiny(nn.Module):
     def __init__(self, Gs=None, nmaps=None, num_classes=10, planes=32, depthwise=False, drop_edge=0, dropout=0, cfg=None):
-        '''RandGrow network in tiny regime for CIFAR training
+        '''GrowNet network in tiny regime for CIFAR training
 
         Arguments:
             Gs (list(DiGraph)) : A list of DAGs from the graph generator
@@ -27,7 +27,7 @@ class RandGrowTiny(nn.Module):
             dropout (float): dropout probability in the fully connected layer
             cfg (dict): configuration of growing policy
         '''
-        super(RandGrowTiny, self).__init__()
+        super(GrowNetTiny, self).__init__()
         self.cfg = cfg
         self.depthwise = depthwise
         self.planes = planes
@@ -57,12 +57,12 @@ class RandGrowTiny(nn.Module):
                 nn.BatchNorm2d(half_planes)
             )
 
-        self.layer2 = RandomNetwork(half_planes, planes, Gs[0],
+        self.layer2 = DAGNet(half_planes, planes, Gs[0],
                 drop_edge=drop_edge, nmap=nmaps[0], downsample=False,
                 depthwise=depthwise)
-        self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1],
+        self.layer3 = DAGNet(planes, 2 * planes, Gs[1],
                 drop_edge=drop_edge, nmap=nmaps[1], depthwise=depthwise)
-        self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2],
+        self.layer4 = DAGNet(2 * planes, 4 * planes, Gs[2],
                 drop_edge=drop_edge, nmap=nmaps[2], depthwise=depthwise)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -94,9 +94,9 @@ class RandGrowTiny(nn.Module):
         layers = [self.layer2, self.layer3, self.layer4]
         return zip(layer_names, layers)
 
-    def begin_monitor(self):
+    def begin_monitor(self, policy):
         for _, layer in self.get_sublayers():
-            layer.begin_monitor()
+            layer.begin_monitor(policy)
 
     def stop_monitor(self):
         for _, layer in self.get_sublayers():
@@ -115,47 +115,36 @@ class RandGrowTiny(nn.Module):
         info['changed_params'] = []
 
         if policy == 'MaxEdgeStrengthPolicy':
-            # Options to define frequency of expansion of each layer
-            #  if options is None:
-            #
-
+            # TODO add frequency variation?
             # Expand layer by layer
             for lname, layer in self.get_sublayers():
                 # Maximum edge excitation expansion policy
-                weights = layer.get_edge_weights()
-                edge_from, edge_to = max(weights.keys(), key=(lambda key: weights[key]))
-                depthrate = self.cfg['depthrate']
-                if torch.bernoulli(torch.Tensor([depthrate])) == 1:
-                    info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
-                else:
-                    info['new_nodes'].append(layer.increase_width(edge_from, edge_to))
-
-                # Name of the expanded node input weight
-                pname = lname + '.nodes.' + str(edge_to) + '.w'
-                info['changed_params'].append((pname, layer.nodes[edge_to].w,))
+                weights = layer.get_edge_strength()
+                edge = max(weights.keys(), key=(lambda key: weights[key]))
+                self._expand_layer(info, lname, layer, edge)
         elif policy == 'RandomPolicy':
-            # Options to define frequency of expansion of each layer
-            #  if options is None:
-            #
-
             # Expand layer by layer
             for lname, layer in self.get_sublayers():
                 # Random edge selection
-                edge_from, edge_to = random.choice(list(layer.G.edges))
-                depthrate = self.cfg['depthrate']
-                if torch.bernoulli(torch.Tensor([depthrate])) == 1:
-                    info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
-                else:
-                    info['new_nodes'].append(layer.increase_width(edge_from, edge_to))
-
-                # Name of the expanded node input weight
-                pname = lname + '.nodes.' + str(edge_to) + '.w'
-                info['changed_params'].append((pname, layer.nodes[edge_to].w,))
-            
+                edge = random.choice(list(layer.G.edges))
+                self._expand_layer(info, lname, layer, edge)
         else:
             raise NotImplementedError
             
         return info
+
+    def _expand_layer(self, info, lname, layer, edge):
+        edge_from, edge_to = edge
+        depthrate = self.cfg['depthrate']
+        if torch.bernoulli(torch.Tensor([depthrate])) == 1:
+            info['new_nodes'].append(layer.increase_depth(edge_from, edge_to))
+        else:
+            info['new_nodes'].append(layer.increase_width(edge_from, edge_to))
+
+        # Name of the expanded node input weight
+        pname = lname + '.nodes.' + str(edge_to) + '.w'
+        info['changed_params'].append((pname, layer.nodes[edge_to].w,))
+
     
     def get_graphs(self):
         return [layer.G for layer in [self.layer2, self.layer3, self.layer4]], \
@@ -215,8 +204,8 @@ class RandGrowTiny(nn.Module):
 
 # Wrappers for both network and graph configuration
 # CIFAR training
-def RandGrowTinyNormal(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=False, drop_edge=0, dropout=0, cfg=None):
-    net = RandGrowTiny(
+def GrowNetTinyNormal(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=False, drop_edge=0, dropout=0, cfg=None):
+    net = GrowNetTiny(
         Gs=Gs,
         nmaps=nmaps,
         num_classes=num_classes,
@@ -229,8 +218,8 @@ def RandGrowTinyNormal(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwis
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
-def RandGrowTiny18(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=False, drop_edge=0, dropout=0, cfg=None):
-    net = RandGrowTiny(
+def GrowNetTiny18(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=False, drop_edge=0, dropout=0, cfg=None):
+    net = GrowNetTiny(
         Gs=Gs,
         nmaps=nmaps,
         num_classes=num_classes,
@@ -243,11 +232,25 @@ def RandGrowTiny18(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=Fa
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
+def GrowNetTinyWide(Gs=None, nmaps=None, num_classes=10, seeds=None, depthwise=True, drop_edge=0, dropout=0, cfg=None):
+    net = GrowNetTiny(
+        Gs=Gs,
+        nmaps=nmaps,
+        num_classes=num_classes,
+        planes=50,
+        depthwise=depthwise,
+        drop_edge=drop_edge,
+        dropout=dropout,
+        cfg=cfg
+    )
+    Gs, nmaps = net.get_graphs()
+    return net, Gs, nmaps
+
 
 def test():
     from visualize import draw_graph, draw_network
 
-    network_list = [RandGrowTinyNormal,]
+    network_list = [GrowNetTinyNormal,]
     cfg = {
         'depthrate': 0.2,
     }

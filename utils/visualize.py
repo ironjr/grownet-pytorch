@@ -34,7 +34,7 @@ def plot_infoflow(label, model, colormap, view=False, wrapped=True, save_dir='gr
     colors = []
     for lname, layer in model.get_sublayers():
         # Get current weights
-        weights = layer.get_edge_weights()
+        weights = layer.get_edge_strength()
         # Re-normalize weights to fit in [0, 1]
         bias = min(weights.values()) if len(weights) > 1 else 0.0
         scale = max(weights.values()) - bias

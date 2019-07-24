@@ -19,13 +19,13 @@ import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from randgrow import RandGrowTinyNormal, RandGrowTiny18
-from loss import CEWithLabelSmoothingLoss
-from scheduler import CosineAnnealingWithRestartsLR
-from util import *
-from visualize import *
-from logger import Logger
-from colormap import ColorMap
+from models.grownet import GrowNetTinyNormal, GrowNetTiny18, GrowNetTinyWide
+from models.loss import CEWithLabelSmoothingLoss
+from utils.scheduler import CosineAnnealingWithRestartsLR
+from utils.util import *
+from utils.visualize import *
+from utils.logger import Logger
+from utils.colormap import ColorMap
 
 
 def main(args):
@@ -96,7 +96,7 @@ def main(args):
             'depthrate': args.depthrate,
         }
         if args.model in ['tiny16', 'tiny']:
-            model, _, _ = RandGrowTinyNormal(
+            model, _, _ = GrowNetTinyNormal(
                 Gs=Gs,
                 nmaps=nmaps,
                 drop_edge=args.drop_edge,
@@ -104,7 +104,15 @@ def main(args):
                 cfg=cfg
             )
         elif args.model in ['tiny18']:
-            model, _, _ = RandGrowTiny18(
+            model, _, _ = GrowNetTiny18(
+                Gs=Gs,
+                nmaps=nmaps,
+                drop_edge=args.drop_edge,
+                dropout=args.dropout,
+                cfg=cfg
+            )
+        elif args.model in ['tinywide']:
+            model, _, _ = GrowNetTinyWide(
                 Gs=Gs,
                 nmaps=nmaps,
                 drop_edge=args.drop_edge,
@@ -145,13 +153,19 @@ def main(args):
             'depthrate': args.depthrate,
         }
         if args.model in ['tiny16', 'tiny']:
-            model, _, _ = RandGrowTinyNormal(
+            model, _, _ = GrowNetTinyNormal(
                 drop_edge=args.drop_edge,
                 dropout=args.dropout,
                 cfg=cfg
             )
         elif args.model in ['tiny18']:
-            model, _, _ = RandGrowTiny18(
+            model, _, _ = GrowNetTiny18(
+                drop_edge=args.drop_edge,
+                dropout=args.dropout,
+                cfg=cfg
+            )
+        elif args.model in ['tinywide']:
+            model, _, _ = GrowNetTinyWide(
                 drop_edge=args.drop_edge,
                 dropout=args.dropout,
                 cfg=cfg
@@ -192,9 +206,12 @@ def main(args):
             if isinstance(v, torch.Tensor):
                 state[k] = v.cuda()
 
+    # Generate monitor policy
+    monitor_policy = dict(param=args.monitor_param, stat=args.monitor_stat)
+
     # Run a single test
     if args.test_only:
-        model.module.begin_monitor()
+        model.module.begin_monitor(monitor_policy)
         test(valloader, model, criterion, (args.start_epoch + 1) * len(trainloader),
                 val_logger=val_logger)
         plot_infoflow(args.label, model, cmap, view=False)
@@ -227,7 +244,7 @@ def main(args):
                 train_logger=train_logger, start_iter=start_iter)
 
         # Begin monitoring weights
-        model.module.begin_monitor()
+        model.module.begin_monitor(monitor_policy)
 
         # Validate
         avgloss = test(valloader, model, criterion, (epoch + 1) * len(trainloader),
@@ -470,8 +487,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch CIFAR Training')
     parser.add_argument('--label', default='default', type=str,
             help='labels checkpoints and logs saved under')
-    parser.add_argument('--model', default='tiny', type=str,
-            choices=('tiny16', 'tiny', 'tiny18',),
+    parser.add_argument('--model', default='tinywide', type=str,
+            choices=('tiny16', 'tiny', 'tiny18', 'tinywide',),
             help='model to run')
     parser.add_argument('--depthrate', default=0.2, type=float,
             help='increase depth probability')
@@ -479,6 +496,12 @@ if __name__ == '__main__':
             help='drop rate of edges, does not apply to regular regime')
     parser.add_argument('--dropout', default=0, type=float,
             help='dropout rate before the fc layer')
+    parser.add_argument('--monitor-param', default='max', type=str,
+            choices=('l2norm', 'max',),
+            help='type of monitored parameter in each of the nodes')
+    parser.add_argument('--monitor-stat', default='cma', type=str,
+            choices=('ma', 'cma',),
+            help='stat of monitored parameter in each of the nodes')
     parser.add_argument('--expand-period', default=1, type=int,
             help='period of network expansion')
     parser.add_argument('--expand-policy', default='MaxEdgeStrengthPolicy', type=str,

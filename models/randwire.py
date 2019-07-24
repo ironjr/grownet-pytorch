@@ -6,10 +6,10 @@ import torch.nn.functional as F
 
 import networkx as nx
 
-from graph import get_graphs
-from layer import SeparableConv
-from randomnet import RandomNetwork
-from util import *
+from .layer import SeparableConv
+from .dagnet import DAGNet
+from utils.graph import get_graphs
+from utils.util import *
 
 
 class RandWireRegular(nn.Module):
@@ -37,10 +37,10 @@ class RandWireRegular(nn.Module):
                 nn.BatchNorm2d(half_planes))
 
         # Since the first random layer is the memory bottleneck, its size is halved
-        self.layer2 = RandomNetwork(half_planes, planes, Gs[0], drop_edge=drop_edge, nmap=nmaps[0])
-        self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1], drop_edge=drop_edge, nmap=nmaps[1])
-        self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2], drop_edge=drop_edge, nmap=nmaps[2])
-        self.layer5 = RandomNetwork(4 * planes, 8 * planes, Gs[3], drop_edge=drop_edge, nmap=nmaps[3])
+        self.layer2 = DAGNet(half_planes, planes, Gs[0], drop_edge=drop_edge, nmap=nmaps[0])
+        self.layer3 = DAGNet(planes, 2 * planes, Gs[1], drop_edge=drop_edge, nmap=nmaps[1])
+        self.layer4 = DAGNet(2 * planes, 4 * planes, Gs[2], drop_edge=drop_edge, nmap=nmaps[2])
+        self.layer5 = DAGNet(4 * planes, 8 * planes, Gs[3], drop_edge=drop_edge, nmap=nmaps[3])
 
         #  self.conv6 = nn.Conv2d(8 * planes, 1280, kernel_size=1)
         self.conv6 = SeparableConv(8 * planes, 1280, kernel_size=1, bias=True)
@@ -149,9 +149,9 @@ class RandWireSmall(nn.Module):
                 SeparableConv(half_planes, planes, stride=2),
                 nn.BatchNorm2d(planes))
 
-        self.layer3 = RandomNetwork(planes, planes, Gs[0], nmap=nmaps[0])
-        self.layer4 = RandomNetwork(planes, 2 * planes, Gs[1], nmap=nmaps[1])
-        self.layer5 = RandomNetwork(2 * planes, 4 * planes, Gs[2], nmap=nmaps[2])
+        self.layer3 = DAGNet(planes, planes, Gs[0], nmap=nmaps[0])
+        self.layer4 = DAGNet(planes, 2 * planes, Gs[1], nmap=nmaps[1])
+        self.layer5 = DAGNet(2 * planes, 4 * planes, Gs[2], nmap=nmaps[2])
 
         #  self.conv6 = nn.Conv2d(4 * planes, 1280, kernel_size=1)
         self.conv6 = SeparableConv(4 * planes, 1280, kernel_size=1, bias=True)
@@ -266,12 +266,12 @@ class RandWireTiny(nn.Module):
                 nn.BatchNorm2d(half_planes)
             )
 
-        self.layer2 = RandomNetwork(half_planes, planes, Gs[0],
+        self.layer2 = DAGNet(half_planes, planes, Gs[0],
                 drop_edge=drop_edge, nmap=nmaps[0], downsample=False,
                 depthwise=depthwise)
-        self.layer3 = RandomNetwork(planes, 2 * planes, Gs[1],
+        self.layer3 = DAGNet(planes, 2 * planes, Gs[1],
                 drop_edge=drop_edge, nmap=nmaps[1], depthwise=depthwise)
-        self.layer4 = RandomNetwork(2 * planes, 4 * planes, Gs[2],
+        self.layer4 = DAGNet(2 * planes, 4 * planes, Gs[2],
                 drop_edge=drop_edge, nmap=nmaps[2], depthwise=depthwise)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -394,7 +394,7 @@ def RandWireTinyNormal(Gs=None, nmaps=None, model=None, params=None, nnodes=32, 
     assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
     if Gs is None:
         # Generate random graph
-        nnodes = [nnodes // 2, nnodes, nnodes]
+        nnodes = [nnodes, nnodes, nnodes]
         Gs = get_graphs(model, params, 3, nnodes, seeds)
     
     # Generate network from graph configurations
@@ -410,7 +410,7 @@ def RandWireTinyNormal(Gs=None, nmaps=None, model=None, params=None, nnodes=32, 
     Gs, nmaps = net.get_graphs()
     return net, Gs, nmaps
 
-def RandWireTinyWide(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=10, seeds=None, depthwise=False, drop_edge=0, dropout=0):
+def RandWireTinyWide(Gs=None, nmaps=None, model=None, params=None, nnodes=32, num_classes=10, seeds=None, depthwise=True, drop_edge=0, dropout=0):
     assert (Gs is not None or (model is not None and params is not None)), 'Graph or its generating method should be given'
     if Gs is None:
         # Generate random graph
@@ -422,7 +422,7 @@ def RandWireTinyWide(Gs=None, nmaps=None, model=None, params=None, nnodes=32, nu
         Gs=Gs,
         nmaps=nmaps,
         num_classes=num_classes,
-        planes=16,
+        planes=50,
         depthwise=depthwise,
         drop_edge=drop_edge,
         dropout=dropout
@@ -439,7 +439,7 @@ def test():
         'P': 0.75,
         'K': 4,
     }
-    network_list = [RandWireTinyWide,]#[RandWireSmall78, RandWireRegular109, RandWireRegular154]
+    network_list = [RandWireTinyNormal,]#[RandWireSmall78, RandWireRegular109, RandWireRegular154]
 
     test_complexity(network_list, graph_type, graph_params, input_size=32, num_samples=10)
 

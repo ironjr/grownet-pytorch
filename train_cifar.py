@@ -16,12 +16,12 @@ import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from randwire import RandWireTinyNormal, RandWireTinyWide
-from loss import CEWithLabelSmoothingLoss
-from scheduler import CosineAnnealingWithRestartsLR
-from util import *
-from visualize import *
-from logger import Logger
+from models.randwire import RandWireTinyNormal, RandWireTinyWide
+from models.loss import CEWithLabelSmoothingLoss
+from utils.scheduler import CosineAnnealingWithRestartsLR
+from utils.util import *
+from utils.visualize import *
+from utils.logger import Logger
 
 
 def main(args):

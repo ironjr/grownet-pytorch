@@ -4,7 +4,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from ptflops import get_model_complexity_info
 
-import layer
+import models.layer
 
 
 class AverageMeter(object):
@@ -97,7 +97,7 @@ def test_complexity(network_list, graph_types, graph_params, input_size=224, num
     if isinstance(graph_params, dict):
         graph_params = [graph_params for _ in network_list]
     if isinstance(input_size, int):
-        input_size = (input_size, input_size)
+        input_size = (3, input_size, input_size)
 
     # Evaluate for all the given networks
     test_names = []
@@ -111,7 +111,6 @@ def test_complexity(network_list, graph_types, graph_params, input_size=224, num
         test_name = '{}[\'{}\'({})]'.format(gen.__name__, gtype, gparam_str)
         test_names.append(test_name)
         print(test_name)
-        input()
 
         # Evaluate
         flops_list = []

@@ -1,0 +1,4 @@
+resnet110 93.570
+
+dsconv_mes_cma_dr05_nor 91.900
+vconv18_mes_cma_dr05_nor 93.150
