@@ -58,23 +58,37 @@ class Node(nn.Module):
             x = x * self.w # (N,Cin,H,W,F)
 
             # For each fanin branch, evaluate average norm
-            numel = x[:,:,:,:,0].numel()
-            for i in range(x.size(4)):
+            for i in range(self.fin):
                 # Monitored value consists of the parameter and its statistics
                 # First, we consider about the parameter and then retrieve its
                 # statistics
 
                 # Euclidean norm
                 if self._monitor['param'] == 'l2norm':
-                    strength = torch.norm(x[:,:,:,:,i].data) / numel
+                    strength = torch.norm(x[:,:,:,:,i].data) / self.fin
                 # maximum (sup norm)
                 elif self._monitor['param'] == 'max':
                     strength = torch.max(x[:,:,:,:,i].data)
+                # absolute weight
+                elif self._monitor['param'] == 'wabs':
+                    if self.fin == 1:
+                        strength = torch.abs(self.w.squeeze())
+                    else:
+                        strength = torch.abs(self.w.squeeze()[i])
+                # positive weight
+                elif self._monitor['param'] == 'wpos':
+                    if self.fin == 1:
+                        strength = torch.max(torch.zeros(1), self.w.squeeze())
+                    else:
+                        strength = torch.max(torch.zeros(1), self.w.squeeze()[i])
                 else:
                     raise NotImplementedError
 
+                # immediate value
+                if self._monitor['stat'] == 'val':
+                    pass
                 # simple moving average
-                if self._monitor['stat'] == 'ma':
+                elif self._monitor['stat'] == 'ma':
                     strength = self.strengths[i] * self.alpha + \
                             strength * \
                             (1 - self.alpha)

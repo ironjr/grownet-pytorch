@@ -497,10 +497,10 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', default=0, type=float,
             help='dropout rate before the fc layer')
     parser.add_argument('--monitor-param', default='max', type=str,
-            choices=('l2norm', 'max',),
+            choices=('l2norm', 'max', 'wabs', 'wpos',),
             help='type of monitored parameter in each of the nodes')
     parser.add_argument('--monitor-stat', default='cma', type=str,
-            choices=('ma', 'cma',),
+            choices=('val', 'ma', 'cma',),
             help='stat of monitored parameter in each of the nodes')
     parser.add_argument('--expand-period', default=1, type=int,
             help='period of network expansion')
