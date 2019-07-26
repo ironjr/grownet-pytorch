@@ -1,4 +1,7 @@
 resnet110 93.570
 
-dsconv_mes_cma_dr05_nor 91.900
+dsconv_mes_cma_dr05_nor 91.900 (memory error)
 vconv18_mes_cma_dr05_nor 93.150
+vconv18_mes_wabs_val_dr05_nor 93.390
+conv18_mes_max_ma_dr05_nor 92.930
+conv18_mes_max_cma_dr05_nor 92.970 test

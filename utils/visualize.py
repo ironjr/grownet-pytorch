@@ -33,12 +33,21 @@ def plot_infoflow(label, model, colormap, view=False, wrapped=True, save_dir='gr
 
     colors = []
     for lname, layer in model.get_sublayers():
-        # Get current weights
-        weights = layer.get_edge_strength()
-        # Re-normalize weights to fit in [0, 1]
-        bias = min(weights.values()) if len(weights) > 1 else 0.0
-        scale = max(weights.values()) - bias
-        colors.append({ k: colormap.get_colors((v - bias) / scale) for k, v in weights.items() })
+        # Get current strengths
+        strengths = layer.get_edge_strength()
+        # Re-normalize strengths to fit in [0, 1]
+        bias = min(strengths.values()) if len(strengths) > 1 else 0.0
+        scale = max(strengths.values()) - bias
+        if scale == 0:
+            colors.append({
+                k: colormap.get_colors(0)
+                for k, v in strengths.items()
+            })
+        else:
+            colors.append({
+                k: colormap.get_colors((v - bias) / scale)
+                for k, v in strengths.items()
+            })
 
     for i, (G, color) in enumerate(zip(Gs, colors)):
         name = label + '.' + str(i) + '.' + 'infoflow'

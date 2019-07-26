@@ -60,8 +60,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=10000 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-2 \
     --num-epochs=60 \
     --no-cosine-annealing \
@@ -75,8 +77,10 @@ python train_grownet_cifar.py \
     --depthrate=$DEPTHRATE \
     --dropout=$DROPOUT \
     --drop-edge=$DROPEDGE \
+    --monitor-param=$MONITOR_PARAM \
+    --monitor-stat=$MONITOR_STAT \
     --expand-period=10000 \
-    --expand-policy=$POLICY \
+    --expand-policy=$EXPAND_POLICY \
     --lr=2e-3 \
     --num-epochs=40 \
     --no-cosine-annealing \

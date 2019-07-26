@@ -78,9 +78,11 @@ class Node(nn.Module):
                 # positive weight
                 elif self._monitor['param'] == 'wpos':
                     if self.fin == 1:
-                        strength = torch.max(torch.zeros(1), self.w.squeeze())
+                        strength = torch.max(torch.zeros(1).to(self.device),
+                                self.w.squeeze())
                     else:
-                        strength = torch.max(torch.zeros(1), self.w.squeeze()[i])
+                        strength = torch.max(torch.zeros(1).to(self.device),
+                                self.w.squeeze()[i])
                 else:
                     raise NotImplementedError
 
@@ -112,7 +114,11 @@ class Node(nn.Module):
             # Append at the end
             index = self.fin
         w = self.w.data.cpu()
-        w = torch.cat((w[:, :index], torch.randn(1, 1) * torch.norm(w), w[:, index:]), 1)
+        w = torch.cat((
+            w[:, :index],
+            torch.randn(1, 1) * torch.norm(w),
+            w[:, index:]
+        ), 1)
         self.w = nn.Parameter(w.to(self.device))
         self.fin += 1
         self.strengths = self.strengths[:index] + [0,] + self.strengths[index:]
