@@ -69,6 +69,15 @@ class Node(nn.Module):
                 # maximum (sup norm)
                 elif self._monitor['param'] == 'max':
                     strength = torch.max(x[:,:,:,:,i].data)
+                # maximum of absolute
+                elif self._monitor['param'] == 'maxabs':
+                    strength = torch.max(torch.abs(x[:,:,:,:,i].data))
+                # maximum of positive
+                elif self._monitor['param'] == 'maxpos':
+                    strength = torch.max(
+                        torch.zeros(x[:,:,:,:,i].size()).to(self.device),
+                        x[:,:,:,:,i].data
+                    )
                 # absolute weight
                 elif self._monitor['param'] == 'wabs':
                     if self.fin == 1:
@@ -78,11 +87,15 @@ class Node(nn.Module):
                 # positive weight
                 elif self._monitor['param'] == 'wpos':
                     if self.fin == 1:
-                        strength = torch.max(torch.zeros(1).to(self.device),
-                                self.w.squeeze())
+                        strength = torch.max(
+                            torch.zeros(1).to(self.device),
+                            self.w.squeeze()
+                        )
                     else:
-                        strength = torch.max(torch.zeros(1).to(self.device),
-                                self.w.squeeze()[i])
+                        strength = torch.max(
+                            torch.zeros(1).to(self.device),
+                            self.w.squeeze()[i]
+                        )
                 else:
                     raise NotImplementedError
 
