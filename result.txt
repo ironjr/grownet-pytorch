@@ -1,7 +1,22 @@
 resnet110 93.570
 
 dsconv_mes_cma_dr05_nor 91.900 (memory error)
-vconv18_mes_cma_dr05_nor 93.150
+vconv18_mes_norm_cma_dr05_nor 93.150
+vconv18_mes_max_cma_dr05_nor reset 93.170 test (??)
 vconv18_mes_wabs_val_dr05_nor 93.390
-conv18_mes_max_ma_dr05_nor 92.930
-conv18_mes_max_cma_dr05_nor 92.970 test
+vconv18_mes_wabs_val_dr05_nor reset 94.050
+vconv18_mes_wabs_val_dr05_nor reset do 0.5 93.720
+vconv18_mes_wabs_val_dr05_nor reset do 0.2 93.810
+vconv18_mes_wabs_val_dr05_nor reset do 0.1 94.070
+vconv18_mes_wabs_val_dr09_nor 92.590
+
+vconv18_mes_max_ma_dr05_nor 92.930
+vconv18_mes_max_ma_dr05_nor reset 93.850
+vconv18_mes_max_cma_dr05_nor 92.970 test
+vconv18_mes_max_cma_dr05_nor reset 93.640 test
+vconv18_mes_wpos_val_dr05_nor 93.160
+vconv18_mes_wpos_val_dr05_nor reset 93.960
+vconv18_mes_maxabs_ma_dr05_nor 92.880
+vconv18_mes_maxabs_ma_dr05_nor reset 93.940
+vconv18_mes_maxabs_cma_dr05_nor 93.270
+vconv18_mes_maxabs_cma_dr05_nor ERR (due to CUDA issue)
